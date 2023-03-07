@@ -555,6 +555,9 @@ class TransportIndexWorkflowAction @Inject constructor(
             reqMonitorIds.remove(it.id)
         }
         if (reqMonitorIds.isNotEmpty()) {
+            log.error("monitorIds: " + monitorIds.joinToString())
+            log.error("delegateMonitors: " + delegateMonitors.joinToString { it.id })
+            log.error("reqMonitorIds: " + reqMonitorIds.joinToString())
             throw AlertingException.wrap(IllegalArgumentException(("${reqMonitorIds.joinToString()} are not valid monitor ids")))
         }
     }
@@ -579,6 +582,14 @@ class TransportIndexWorkflowAction @Inject constructor(
                 monitors.add(monitor as Monitor)
             }
         }
+        if (monitors.isEmpty()) {
+            val searchSource1 = SearchSourceBuilder().query(QueryBuilders.matchAllQuery())
+            val searchRequest1 = SearchRequest(ScheduledJob.SCHEDULED_JOBS_INDEX).source(searchSource1)
+            val response1: SearchResponse = client.suspendUntil { client.search(searchRequest1, it) }
+
+            print(response1)
+        }
+
         return monitors
     }
 }

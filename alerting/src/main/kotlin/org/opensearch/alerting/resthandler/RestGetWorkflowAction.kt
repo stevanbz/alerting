@@ -19,7 +19,7 @@ import org.opensearch.rest.action.RestToXContentListener
 import org.opensearch.search.fetch.subphase.FetchSourceContext
 
 /**
- * This class consists of the REST handler to retrieve a monitor .
+ * This class consists of the REST handler to retrieve a workflow .
  */
 class RestGetWorkflowAction : BaseRestHandler() {
 
@@ -30,14 +30,23 @@ class RestGetWorkflowAction : BaseRestHandler() {
     }
 
     override fun routes(): List<RestHandler.Route> {
-        return listOf()
+        return listOf(
+            RestHandler.Route(
+                RestRequest.Method.GET,
+                "${AlertingPlugin.WORKFLOW_BASE_URI}/{workflowID}"
+            ),
+            RestHandler.Route(
+                RestRequest.Method.HEAD,
+                "${AlertingPlugin.WORKFLOW_BASE_URI}/{workflowID}"
+            )
+        )
     }
 
     override fun prepareRequest(request: RestRequest, client: NodeClient): RestChannelConsumer {
         log.debug("${request.method()} ${AlertingPlugin.WORKFLOW_BASE_URI}/{workflowID}")
 
-        val monitorId = request.param("workflowID")
-        if (monitorId == null || monitorId.isEmpty()) {
+        val workflowId = request.param("workflowID")
+        if (workflowId == null || workflowId.isEmpty()) {
             throw IllegalArgumentException("missing id")
         }
 
@@ -46,7 +55,7 @@ class RestGetWorkflowAction : BaseRestHandler() {
             srcContext = FetchSourceContext.DO_NOT_FETCH_SOURCE
         }
         val getWorkflowRequest =
-            GetWorkflowRequest(monitorId, RestActions.parseVersion(request), request.method(), srcContext)
+            GetWorkflowRequest(workflowId, RestActions.parseVersion(request), request.method(), srcContext)
         return RestChannelConsumer {
                 channel ->
             client.execute(AlertingActions.GET_WORKFLOW_ACTION_TYPE, getWorkflowRequest, RestToXContentListener(channel))
