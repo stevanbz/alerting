@@ -416,24 +416,12 @@
                           "type": "integer"
                         },
                         "monitor_id": {
-                          "type": "text",
-                          "fields": {
-                            "keyword": {
-                              "type": "keyword",
-                              "ignore_above": 256
-                            }
-                          }
+                          "type": "keyword"
                         },
                         "chained_findings": {
                           "properties": {
                             "monitor_id": {
-                              "type": "text",
-                              "fields": {
-                                "keyword": {
-                                  "type": "keyword",
-                                  "ignore_above": 256
-                                }
-                              }
+                              "type": "keyword"
                             }
                           }
                         }

@@ -34,7 +34,7 @@ object CompositeWorkflowRunner : WorkflowRunner() {
         periodEnd: Instant,
         dryRun: Boolean
     ): WorkflowRunResult {
-        val workflowExecutionId = UUID.randomUUID().toString() + LocalDateTime.now()
+        val workflowExecutionId = workflow.id.plus(LocalDateTime.now()).plus(UUID.randomUUID().toString())
         var workflowResult = WorkflowRunResult(mutableListOf(), periodStart, periodEnd, workflowExecutionId)
         logger.debug("Workflow ${workflow.id} in $workflowExecutionId execution is running")
         try {

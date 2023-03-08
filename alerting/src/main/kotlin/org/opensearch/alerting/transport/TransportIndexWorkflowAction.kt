@@ -33,6 +33,7 @@ import org.opensearch.alerting.settings.DestinationSettings.Companion.ALLOW_LIST
 import org.opensearch.alerting.util.AlertingException
 import org.opensearch.alerting.util.DocLevelMonitorQueries
 import org.opensearch.alerting.util.IndexUtils
+import org.opensearch.alerting.util.isQueryLevelMonitor
 import org.opensearch.client.Client
 import org.opensearch.cluster.service.ClusterService
 import org.opensearch.common.inject.Inject
@@ -55,6 +56,7 @@ import org.opensearch.commons.alerting.model.ScheduledJob.Companion.SCHEDULED_JO
 import org.opensearch.commons.alerting.model.Workflow
 import org.opensearch.commons.authuser.User
 import org.opensearch.commons.utils.recreateObject
+import org.opensearch.index.IndexNotFoundException
 import org.opensearch.index.query.QueryBuilders
 import org.opensearch.rest.RestRequest
 import org.opensearch.rest.RestStatus
@@ -63,10 +65,10 @@ import org.opensearch.tasks.Task
 import org.opensearch.transport.TransportService
 import java.util.stream.Collectors
 
-private val log = LogManager.getLogger(TransportIndexCompositeWorkflowAction::class.java)
+private val log = LogManager.getLogger(TransportIndexWorkflowAction::class.java)
 private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 
-class TransportIndexCompositeWorkflowAction @Inject constructor(
+class TransportIndexWorkflowAction @Inject constructor(
     transportService: TransportService,
     val client: Client,
     actionFilters: ActionFilters,
@@ -169,7 +171,16 @@ class TransportIndexCompositeWorkflowAction @Inject constructor(
                 try {
                     validateRequest(request)
                 } catch (e: Exception) {
-                    actionListener.onFailure(e)
+                    if (e is IndexNotFoundException) {
+                        actionListener.onFailure(
+                            OpenSearchStatusException(
+                                "Monitors not found",
+                                RestStatus.NOT_FOUND
+                            )
+                        )
+                    } else {
+                        actionListener.onFailure(e)
+                    }
                     return@launch
                 }
 
@@ -480,7 +491,7 @@ class TransportIndexCompositeWorkflowAction @Inject constructor(
         validateChainedFindings(compositeInput.sequence.delegates)
         val delegateMonitors = getDelegateMonitors(monitorIds)
         validateDelegateMonitorsExist(monitorIds, delegateMonitors)
-        // todo: validate that user has roles to reference delegate monitors
+        validateChainedFindingsMonitors(compositeInput.sequence.delegates, delegateMonitors)
     }
 
     private fun validateChainedFindings(delegates: List<Delegate>) {
@@ -494,12 +505,28 @@ class TransportIndexCompositeWorkflowAction @Inject constructor(
                         )
                     )
                 }
-                if (it.order <= monitorIdOrderMap[it.chainedFindings!!.monitorId]!!)
+                if (it.order <= monitorIdOrderMap[it.chainedFindings!!.monitorId]!!) {
                     throw AlertingException.wrap(
                         IllegalArgumentException(
                             "Chained Findings Monitor ${it.chainedFindings!!.monitorId} should be executed before monitor ${it.monitorId}"
                         )
                     )
+                }
+            }
+        }
+    }
+
+    private fun validateChainedFindingsMonitors(delegates: List<Delegate>, monitorDelegates: List<Monitor>) {
+        val monitorsById = monitorDelegates.associateBy { it.id }
+        delegates.forEach {
+            if (it.chainedFindings != null) {
+                val chainedFindingMonitor = monitorsById[it.chainedFindings!!.monitorId] ?: throw AlertingException.wrap(
+                    IllegalArgumentException("Chained finding monitor doesn't exist")
+                )
+
+                if (chainedFindingMonitor.isQueryLevelMonitor()) {
+                    throw AlertingException.wrap(IllegalArgumentException("Query level monitor can't be part of chained findings"))
+                }
             }
         }
     }

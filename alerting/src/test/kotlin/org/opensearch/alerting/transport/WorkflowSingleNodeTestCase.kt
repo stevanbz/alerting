@@ -93,10 +93,10 @@ abstract class WorkflowSingleNodeTestCase : AlertingSingleNodeTestCase() {
         ).get()
     }
 
-    protected fun deleteWorkflow(workflowId: String) {
+    protected fun deleteWorkflow(workflowId: String, deleteUnderlyingMonitors: Boolean? = null) {
         client().execute(
             AlertingActions.DELETE_WORKFLOW_ACTION_TYPE,
-            DeleteWorkflowRequest(workflowId, WriteRequest.RefreshPolicy.IMMEDIATE)
+            DeleteWorkflowRequest(workflowId, deleteUnderlyingMonitors, WriteRequest.RefreshPolicy.IMMEDIATE)
         ).get()
     }
 

@@ -353,7 +353,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         }
     }
 
-    fun `test delete workflow`() {
+    fun `test delete workflow underlying monitor deleted`() {
         val docLevelInput = DocLevelMonitorInput(
             "description", listOf(index), listOf(DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3"))
         )
@@ -376,7 +376,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         assertNotNull(getWorkflowResponse)
         assertEquals(workflowId, getWorkflowResponse.id)
 
-        deleteWorkflow(workflowId)
+        deleteWorkflow(workflowId, true)
         // Verify that the workflow is deleted
         try {
             getWorkflowById(workflowId)
@@ -388,9 +388,69 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
                 )
             }
         }
+        // Verify that the monitor is deleted
+        try {
+            getMonitorResponse(monitorResponse.id)
+        } catch (e: Exception) {
+            e.message?.let {
+                assertTrue(
+                    "Exception not returning GetMonitor Action error ",
+                    it.contains("Monitor not found")
+                )
+            }
+        }
     }
 
-    fun `test delete monitor that is part of workflow sequence`() {
+    fun `test delete workflow underlying monitor not deleted`() {
+        val docLevelInput = DocLevelMonitorInput(
+            "description", listOf(index), listOf(DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3"))
+        )
+        val trigger = randomDocumentLevelTrigger(condition = ALWAYS_RUN)
+
+        val monitor = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger)
+        )
+
+        var monitorResponse = createMonitor(monitor)!!
+
+        val workflowRequest = randomWorkflowMonitor(
+            monitorIds = listOf(monitorResponse.id)
+        )
+        val workflowResponse = upsertWorkflow(workflowRequest)!!
+        val workflowId = workflowResponse.id
+        val getWorkflowResponse = getWorkflowById(id = workflowResponse.id)
+
+        assertNotNull(getWorkflowResponse)
+        assertEquals(workflowId, getWorkflowResponse.id)
+
+        val workflowRequest2 = randomWorkflowMonitor(
+            monitorIds = listOf(monitorResponse.id)
+        )
+        val workflowResponse2 = upsertWorkflow(workflowRequest2)!!
+        val workflowId2 = workflowResponse2.id
+        val getWorkflowResponse2 = getWorkflowById(id = workflowResponse2.id)
+
+        assertNotNull(getWorkflowResponse2)
+        assertEquals(workflowId2, getWorkflowResponse2.id)
+
+        deleteWorkflow(workflowId, true)
+        // Verify that the workflow is deleted
+        try {
+            getWorkflowById(workflowId)
+        } catch (e: Exception) {
+            e.message?.let {
+                assertTrue(
+                    "Exception not returning GetWorkflow Action error ",
+                    it.contains("Workflow not found.")
+                )
+            }
+        }
+        val existingMonitor = getMonitorResponse(monitorResponse.id)
+        assertNotNull(existingMonitor)
+    }
+
+    fun `test trying to delete monitor that is part of workflow sequence`() {
         val docLevelInput = DocLevelMonitorInput(
             "description", listOf(index), listOf(DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3"))
         )
@@ -407,7 +467,6 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
             monitorIds = listOf(monitorResponse.id)
         )
 
-        (workflowRequest.inputs.get(0) as CompositeInput).sequence.delegates.get(0).monitorId
         val workflowResponse = upsertWorkflow(workflowRequest)!!
         val workflowId = workflowResponse.id
         val getWorkflowResponse = getWorkflowById(id = workflowResponse.id)
@@ -713,6 +772,56 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
                 assertTrue(
                     "Exception not returning IndexWorkflow Action error ",
                     it.contains("Chained Findings Monitor monitor-x doesn't exist in sequence")
+                )
+            }
+        }
+    }
+
+    fun `test create workflow query monitor chained findings monitor failure`() {
+        val docLevelInput = DocLevelMonitorInput(
+            "description", listOf(index), listOf(DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3"))
+        )
+        val trigger = randomDocumentLevelTrigger(condition = ALWAYS_RUN)
+
+        val docMonitor = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger)
+        )
+        val docMonitorResponse = createMonitor(docMonitor)!!
+
+        val queryMonitor = randomQueryLevelMonitor()
+        val queryMonitorResponse = createMonitor(queryMonitor)!!
+
+        var workflow = randomWorkflowMonitor(
+            monitorIds = listOf(queryMonitorResponse.id, docMonitorResponse.id)
+        )
+        try {
+            upsertWorkflow(workflow)
+        } catch (e: Exception) {
+            e.message?.let {
+                assertTrue(
+                    "Exception not returning IndexWorkflow Action error ",
+                    it.contains("Query level monitor can't be part of chained findings")
+                )
+            }
+        }
+    }
+
+    fun `test create workflow when monitor index not initialized failure`() {
+        val delegates = listOf(
+            Delegate(1, "monitor-1")
+        )
+        val workflow = randomWorkflowMonitorWithDelegates(
+            delegates = delegates
+        )
+
+        try {
+            upsertWorkflow(workflow)
+        } catch (e: Exception) {
+            e.message?.let {
+                assertTrue(
+                    "Exception not returning IndexWorkflow Action error ",
+                    it.contains("Monitors not found")
                 )
             }
         }
