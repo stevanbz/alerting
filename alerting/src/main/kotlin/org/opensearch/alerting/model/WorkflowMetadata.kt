@@ -13,6 +13,7 @@ import org.opensearch.common.xcontent.XContentBuilder
 import org.opensearch.common.xcontent.XContentParser
 import org.opensearch.common.xcontent.XContentParserUtils
 import org.opensearch.commons.alerting.util.instant
+import org.opensearch.commons.alerting.util.optionalTimeField
 import java.io.IOException
 import java.time.Instant
 
@@ -46,7 +47,7 @@ data class WorkflowMetadata(
         if (params.paramAsBoolean("with_type", false)) builder.startObject(METADATA)
         builder.field(WORKFLOW_ID_FIELD, workflowId)
             .field(MONITOR_IDS_FIELD, monitorIds)
-            .field(LATEST_RUN_TIME, latestRunTime)
+            .optionalTimeField(LATEST_RUN_TIME, latestRunTime)
             .field(LATEST_EXECUTION_ID, latestExecutionId)
         if (params.paramAsBoolean("with_type", false)) builder.endObject()
         return builder.endObject()

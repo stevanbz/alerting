@@ -61,7 +61,7 @@ class InputService(
             val aggTriggerAfterKey: MutableMap<String, TriggerAfterKey> = mutableMapOf()
 
             // If monitor execution is triggered from a workflow
-            val indexToDocIds = workflowRunContext?.matchingDocIdsPerIndex
+            val matchingDocIdsPerIndex = workflowRunContext?.matchingDocIdsPerIndex
 
             // TODO: If/when multiple input queries are supported for Bucket-Level Monitor execution, aggTriggerAfterKeys will
             //  need to be updated to account for it
@@ -79,8 +79,8 @@ class InputService(
                         val rewrittenQuery = AggregationQueryRewriter.rewriteQuery(deepCopyQuery(input.query), prevResult, monitor.triggers)
 
                         // Rewrite query to consider the doc ids per given index
-                        if (chainedFindingExist(indexToDocIds)) {
-                            val updatedSourceQuery = updateInputQueryWithFindingDocIds(rewrittenQuery.query(), indexToDocIds!!)
+                        if (chainedFindingExist(matchingDocIdsPerIndex)) {
+                            val updatedSourceQuery = updateInputQueryWithFindingDocIds(rewrittenQuery.query(), matchingDocIdsPerIndex!!)
                             rewrittenQuery.query(updatedSourceQuery)
                         }
 

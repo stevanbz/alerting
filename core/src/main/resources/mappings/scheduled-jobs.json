@@ -841,22 +841,6 @@
         },
         "latest_execution_id": {
           "type": "keyword"
-        },
-        "last_action_execution_times": {
-          "type": "nested",
-          "properties": {
-            "action_id": {
-              "type": "keyword"
-            },
-            "execution_time": {
-              "type": "date",
-              "format": "strict_date_time||epoch_millis"
-            }
-          }
-        },
-        "last_run_context": {
-          "type": "object",
-          "enabled": false
         }
       }
     }

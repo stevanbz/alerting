@@ -10,6 +10,7 @@ import org.opensearch.action.support.WriteRequest
 import org.opensearch.alerting.action.ExecuteWorkflowAction
 import org.opensearch.alerting.action.ExecuteWorkflowRequest
 import org.opensearch.alerting.action.ExecuteWorkflowResponse
+import org.opensearch.alerting.model.WorkflowMetadata
 import org.opensearch.common.unit.TimeValue
 import org.opensearch.common.xcontent.XContentParser
 import org.opensearch.common.xcontent.json.JsonXContent
@@ -65,6 +66,35 @@ abstract class WorkflowSingleNodeTestCase : AlertingSingleNodeTestCase() {
         }.first()
     }
 
+    protected fun searchWorkflowMetadata(
+        id: String,
+        indices: String = ScheduledJob.SCHEDULED_JOBS_INDEX,
+        refresh: Boolean = true,
+    ): WorkflowMetadata? {
+        try {
+            if (refresh) refreshIndex(indices)
+        } catch (e: Exception) {
+            logger.warn("Could not refresh index $indices because: ${e.message}")
+            return null
+        }
+        val ssb = SearchSourceBuilder()
+        ssb.version(true)
+        ssb.query(TermQueryBuilder("workflow_metadata.workflow_id", id))
+        val searchResponse = client().prepareSearch(indices).setRouting(id).setSource(ssb).get()
+
+        return searchResponse.hits.hits.map { it ->
+            val xcp = createParser(JsonXContent.jsonXContent, it.sourceRef).also { it.nextToken() }
+            lateinit var workflowMetadata: WorkflowMetadata
+            while (xcp.nextToken() != XContentParser.Token.END_OBJECT) {
+                xcp.nextToken()
+                when (xcp.currentName()) {
+                    "workflow_metadata" -> workflowMetadata = WorkflowMetadata.parse(xcp)
+                }
+            }
+            workflowMetadata.copy(id = it.id)
+        }.first()
+    }
+
     protected fun upsertWorkflow(
         workflow: Workflow,
         id: String = Workflow.NO_ID,
@@ -93,10 +123,10 @@ abstract class WorkflowSingleNodeTestCase : AlertingSingleNodeTestCase() {
         ).get()
     }
 
-    protected fun deleteWorkflow(workflowId: String, deleteUnderlyingMonitors: Boolean? = null) {
+    protected fun deleteWorkflow(workflowId: String, deleteDelegateMonitors: Boolean? = null) {
         client().execute(
             AlertingActions.DELETE_WORKFLOW_ACTION_TYPE,
-            DeleteWorkflowRequest(workflowId, deleteUnderlyingMonitors, WriteRequest.RefreshPolicy.IMMEDIATE)
+            DeleteWorkflowRequest(workflowId, deleteDelegateMonitors, WriteRequest.RefreshPolicy.IMMEDIATE)
         ).get()
     }
 
