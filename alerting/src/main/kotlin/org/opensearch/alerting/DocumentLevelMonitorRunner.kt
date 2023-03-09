@@ -100,7 +100,7 @@ object DocumentLevelMonitorRunner : MonitorRunner() {
 
         var monitorMetadata = getMonitorMetadata(monitorCtx.client!!, monitorCtx.xContentRegistry!!, "${monitor.id}-metadata")
         if (monitorMetadata == null) {
-            monitorMetadata = createMonitorMetadata(monitor.id)
+            monitorMetadata = createMonitorMetadata(monitor.id, workflowRunContext?.workflowId)
         }
 
         val isTempMonitor = dryrun || monitor.id == Monitor.NO_ID

@@ -407,7 +407,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
         }
     }
 
-    fun `test execute workflow inout error`() {
+    fun `test execute workflow input error`() {
         val docLevelInput = DocLevelMonitorInput(
             "description", listOf(index), listOf(DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3"))
         )

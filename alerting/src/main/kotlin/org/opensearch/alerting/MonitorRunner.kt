@@ -183,7 +183,11 @@ abstract class MonitorRunner {
         return NotificationActionConfigs(destination, channel)
     }
 
-    protected fun createMonitorMetadata(monitorId: String): MonitorMetadata {
-        return MonitorMetadata("$monitorId-metadata", monitorId, emptyList(), emptyMap())
+    protected fun createMonitorMetadata(monitorId: String, workflowId: String? = null): MonitorMetadata {
+        return if (workflowId.isNullOrEmpty()) {
+            MonitorMetadata("$monitorId-metadata", monitorId, emptyList(), emptyMap())
+        } else {
+            MonitorMetadata("$monitorId-$workflowId-metadata", monitorId, emptyList(), emptyMap())
+        }
     }
 }

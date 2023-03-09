@@ -17,7 +17,7 @@ import java.time.Instant
 data class WorkflowRunResult(
     val workflowRunResult: List<MonitorRunResult<*>> = mutableListOf(),
     val executionStartTime: Instant,
-    val executionEndTime: Instant,
+    val executionEndTime: Instant? = null,
     val executionId: String,
     val error: Exception? = null
 ) : Writeable, ToXContent {
