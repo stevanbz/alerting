@@ -47,7 +47,7 @@ class RestDeleteWorkflowAction : BaseRestHandler() {
 
         val refreshPolicy =
             WriteRequest.RefreshPolicy.parse(request.param(REFRESH, WriteRequest.RefreshPolicy.IMMEDIATE.value))
-        val deleteWorkflowRequest = DeleteWorkflowRequest(workflowId, refreshPolicy)
+        val deleteWorkflowRequest = DeleteWorkflowRequest(workflowId, true, refreshPolicy)
 
         return RestChannelConsumer { channel ->
             client.execute(
