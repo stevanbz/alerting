@@ -1,3 +1,8 @@
+/*
+ * Copyright OpenSearch Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package org.opensearch.alerting.transport
 
 import org.opensearch.OpenSearchStatusException
@@ -6,9 +11,6 @@ import org.opensearch.action.get.GetRequest
 import org.opensearch.action.get.GetResponse
 import org.opensearch.action.support.ActionFilters
 import org.opensearch.action.support.HandledTransportAction
-import org.opensearch.alerting.action.GetMonitorAction
-import org.opensearch.alerting.action.GetMonitorRequest
-import org.opensearch.alerting.action.GetMonitorResponse
 import org.opensearch.alerting.settings.AlertingSettings
 import org.opensearch.alerting.util.AlertingException
 import org.opensearch.client.Client
@@ -19,8 +21,12 @@ import org.opensearch.common.xcontent.LoggingDeprecationHandler
 import org.opensearch.common.xcontent.NamedXContentRegistry
 import org.opensearch.common.xcontent.XContentHelper
 import org.opensearch.common.xcontent.XContentType
-import org.opensearch.commons.alerting.model.Monitor
+import org.opensearch.commons.alerting.action.AlertingActions
+import org.opensearch.commons.alerting.action.GetWorkflowRequest
+import org.opensearch.commons.alerting.action.GetWorkflowResponse
 import org.opensearch.commons.alerting.model.ScheduledJob
+import org.opensearch.commons.alerting.model.Workflow
+import org.opensearch.index.IndexNotFoundException
 import org.opensearch.rest.RestStatus
 import org.opensearch.tasks.Task
 import org.opensearch.transport.TransportService
@@ -32,8 +38,8 @@ class TransportGetWorkflowAction @Inject constructor(
     val xContentRegistry: NamedXContentRegistry,
     val clusterService: ClusterService,
     settings: Settings
-) : HandledTransportAction<GetMonitorRequest, GetMonitorResponse>(
-    GetMonitorAction.NAME, transportService, actionFilters, ::GetMonitorRequest
+) : HandledTransportAction<GetWorkflowRequest, GetWorkflowResponse>(
+    AlertingActions.GET_WORKFLOW_ACTION_NAME, transportService, actionFilters, ::GetWorkflowRequest
 ),
     SecureTransportAction {
 
@@ -43,23 +49,17 @@ class TransportGetWorkflowAction @Inject constructor(
         listenFilterBySettingChange(clusterService)
     }
 
-    override fun doExecute(task: Task, getMonitorRequest: GetMonitorRequest, actionListener: ActionListener<GetMonitorResponse>) {
+    override fun doExecute(task: Task, getWorkflowRequest: GetWorkflowRequest, actionListener: ActionListener<GetWorkflowResponse>) {
         val user = readUserFromThreadContext(client)
 
-        val getRequest = GetRequest(ScheduledJob.SCHEDULED_JOBS_INDEX, getMonitorRequest.monitorId)
-            .version(getMonitorRequest.version)
-            .fetchSourceContext(getMonitorRequest.srcContext)
+        val getRequest = GetRequest(ScheduledJob.SCHEDULED_JOBS_INDEX, getWorkflowRequest.workflowId)
+            .version(getWorkflowRequest.version)
+            .fetchSourceContext(getWorkflowRequest.srcContext)
 
         if (!validateUserBackendRoles(user, actionListener)) {
             return
         }
 
-        /*
-         * Remove security context before you call elasticsearch api's. By this time, permissions required
-         * to call this api are validated.
-         * Once system-indices [https://github.com/opendistro-for-elasticsearch/security/issues/666] is done, we
-         * might further improve this logic. Also change try to kotlin-use for auto-closable.
-         */
         client.threadPool().threadContext.stashContext().use {
             client.get(
                 getRequest,
@@ -69,7 +69,7 @@ class TransportGetWorkflowAction @Inject constructor(
                             actionListener.onFailure(
                                 AlertingException.wrap(
                                     OpenSearchStatusException(
-                                        "Monitor not found.",
+                                        "Workflow not found.",
                                         RestStatus.NOT_FOUND
                                     )
                                 )
@@ -77,21 +77,21 @@ class TransportGetWorkflowAction @Inject constructor(
                             return
                         }
 
-                        var monitor: Monitor? = null
+                        var workflow: Workflow? = null
                         if (!response.isSourceEmpty) {
                             XContentHelper.createParser(
                                 xContentRegistry, LoggingDeprecationHandler.INSTANCE,
                                 response.sourceAsBytesRef, XContentType.JSON
                             ).use { xcp ->
-                                monitor = ScheduledJob.parse(xcp, response.id, response.version) as Monitor
+                                workflow = ScheduledJob.parse(xcp, response.id, response.version) as Workflow
 
                                 // security is enabled and filterby is enabled
                                 if (!checkUserPermissionsWithResource(
                                         user,
-                                        monitor?.user,
+                                        workflow?.user,
                                         actionListener,
-                                        "monitor",
-                                        getMonitorRequest.monitorId
+                                        "workflow",
+                                        getWorkflowRequest.workflowId
                                     )
                                 ) {
                                     return
@@ -100,19 +100,28 @@ class TransportGetWorkflowAction @Inject constructor(
                         }
 
                         actionListener.onResponse(
-                            GetMonitorResponse(
+                            GetWorkflowResponse(
                                 response.id,
                                 response.version,
                                 response.seqNo,
                                 response.primaryTerm,
                                 RestStatus.OK,
-                                monitor
+                                workflow
                             )
                         )
                     }
 
                     override fun onFailure(t: Exception) {
-                        actionListener.onFailure(AlertingException.wrap(t))
+                        if (t is IndexNotFoundException) {
+                            actionListener.onFailure(
+                                OpenSearchStatusException(
+                                    "Workflow not found",
+                                    RestStatus.NOT_FOUND
+                                )
+                            )
+                        } else {
+                            actionListener.onFailure(AlertingException.wrap(t))
+                        }
                     }
                 }
             )

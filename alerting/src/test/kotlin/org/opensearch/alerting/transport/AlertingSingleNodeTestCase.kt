@@ -6,6 +6,7 @@
 package org.opensearch.alerting.transport
 
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakScope
+import org.opensearch.action.admin.indices.delete.DeleteIndexRequest
 import org.opensearch.action.admin.indices.get.GetIndexRequestBuilder
 import org.opensearch.action.admin.indices.get.GetIndexResponse
 import org.opensearch.action.admin.indices.refresh.RefreshAction
@@ -20,9 +21,13 @@ import org.opensearch.alerting.action.GetMonitorRequest
 import org.opensearch.alerting.alerts.AlertIndices
 import org.opensearch.common.settings.Settings
 import org.opensearch.common.unit.TimeValue
+import org.opensearch.common.xcontent.XContentBuilder
+import org.opensearch.common.xcontent.XContentFactory
 import org.opensearch.common.xcontent.XContentType
 import org.opensearch.common.xcontent.json.JsonXContent
 import org.opensearch.commons.alerting.action.AlertingActions
+import org.opensearch.commons.alerting.action.DeleteMonitorRequest
+import org.opensearch.commons.alerting.action.DeleteMonitorResponse
 import org.opensearch.commons.alerting.action.GetFindingsRequest
 import org.opensearch.commons.alerting.action.GetFindingsResponse
 import org.opensearch.commons.alerting.action.IndexMonitorRequest
@@ -31,15 +36,21 @@ import org.opensearch.commons.alerting.model.Alert
 import org.opensearch.commons.alerting.model.Finding
 import org.opensearch.commons.alerting.model.Monitor
 import org.opensearch.commons.alerting.model.Table
+import org.opensearch.index.IndexService
 import org.opensearch.index.query.TermQueryBuilder
 import org.opensearch.index.reindex.ReindexPlugin
 import org.opensearch.index.seqno.SequenceNumbers
+import org.opensearch.painless.PainlessPlugin
 import org.opensearch.plugins.Plugin
 import org.opensearch.rest.RestRequest
+import org.opensearch.script.mustache.MustachePlugin
 import org.opensearch.search.builder.SearchSourceBuilder
 import org.opensearch.search.fetch.subphase.FetchSourceContext
 import org.opensearch.test.OpenSearchSingleNodeTestCase
 import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.*
 
 /**
@@ -70,17 +81,58 @@ abstract class AlertingSingleNodeTestCase : OpenSearchSingleNodeTestCase() {
         return client().execute(ExecuteMonitorAction.INSTANCE, request).get()
     }
 
-    /** A test index that can be used across tests. Feel free to add new fields but don't remove any. */
-    protected fun createTestIndex() {
-        createIndex(
-            index, Settings.EMPTY,
-            """
-                "properties" : {
-                  "test_strict_date_time" : { "type" : "date", "format" : "strict_date_time" },
-                  "test_field" : { "type" : "keyword" }
+    protected fun insertSampleTimeSerializedData(index: String, data: List<String>) {
+        data.forEachIndexed { i, value ->
+            val twoMinsAgo = ZonedDateTime.now().minus(2, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MILLIS)
+            val testTime = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(twoMinsAgo)
+            val testDoc = """
+                {
+                  "test_strict_date_time": "$testTime",
+                  "test_field_1": "$value",
+                  "number": "$i"
                 }
             """.trimIndent()
+            // Indexing documents with deterministic doc id to allow for easy selected deletion during testing
+            indexDoc(index, (i + 1).toString(), testDoc)
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun Map<String, Any>.stringMap(key: String): Map<String, Any>? {
+        val map = this as Map<String, Map<String, Any>>
+        return map[key]
+    }
+
+    /** A test index that can be used across tests. Feel free to add new fields but don't remove any. */
+    protected fun createTestIndex() {
+        val mapping = XContentFactory.jsonBuilder()
+        mapping.startObject()
+            .startObject("properties")
+            .startObject("test_strict_date_time")
+            .field("type", "date")
+            .field("format", "strict_date_time")
+            .endObject()
+            .startObject("test_field_1")
+            .field("type", "keyword")
+            .endObject()
+            .endObject()
+            .endObject()
+
+        createIndex(
+            index, Settings.EMPTY, mapping
         )
+    }
+
+    private fun createIndex(
+        index: String?,
+        settings: Settings?,
+        mappings: XContentBuilder?,
+    ): IndexService? {
+        val createIndexRequestBuilder = client().admin().indices().prepareCreate(index).setSettings(settings)
+        if (mappings != null) {
+            createIndexRequestBuilder.setMapping(mappings)
+        }
+        return this.createIndex(index, createIndexRequestBuilder)
     }
 
     protected fun indexDoc(index: String, id: String, doc: String) {
@@ -137,7 +189,7 @@ abstract class AlertingSingleNodeTestCase : OpenSearchSingleNodeTestCase() {
     protected fun searchFindings(
         id: String,
         indices: String = AlertIndices.ALL_FINDING_INDEX_PATTERN,
-        refresh: Boolean = true
+        refresh: Boolean = true,
     ): List<Finding> {
         if (refresh) refreshIndex(indices)
 
@@ -172,14 +224,23 @@ abstract class AlertingSingleNodeTestCase : OpenSearchSingleNodeTestCase() {
     protected fun getMonitorResponse(
         monitorId: String,
         version: Long = 1L,
-        fetchSourceContext: FetchSourceContext = FetchSourceContext.FETCH_SOURCE
+        fetchSourceContext: FetchSourceContext = FetchSourceContext.FETCH_SOURCE,
     ) = client().execute(
         GetMonitorAction.INSTANCE,
         GetMonitorRequest(monitorId, version, RestRequest.Method.GET, fetchSourceContext)
     ).get()
 
+    protected fun deleteMonitor(monitorId: String): DeleteMonitorResponse = client().execute(
+        AlertingActions.DELETE_MONITOR_ACTION_TYPE, DeleteMonitorRequest(monitorId, WriteRequest.RefreshPolicy.IMMEDIATE)
+    ).get()
+
+    protected fun deleteIndex(index: String) {
+        val response = client().admin().indices().delete(DeleteIndexRequest(index)).get()
+        assertTrue("Unable to delete index", response.isAcknowledged())
+    }
+
     override fun getPlugins(): List<Class<out Plugin>> {
-        return listOf(AlertingPlugin::class.java, ReindexPlugin::class.java)
+        return listOf(AlertingPlugin::class.java, ReindexPlugin::class.java, MustachePlugin::class.java, PainlessPlugin::class.java)
     }
 
     override fun resetNodeAfterTest(): Boolean {

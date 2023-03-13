@@ -33,6 +33,7 @@ import org.opensearch.alerting.settings.DestinationSettings.Companion.ALLOW_LIST
 import org.opensearch.alerting.util.AlertingException
 import org.opensearch.alerting.util.DocLevelMonitorQueries
 import org.opensearch.alerting.util.IndexUtils
+import org.opensearch.alerting.util.isQueryLevelMonitor
 import org.opensearch.client.Client
 import org.opensearch.cluster.service.ClusterService
 import org.opensearch.common.inject.Inject
@@ -55,6 +56,7 @@ import org.opensearch.commons.alerting.model.ScheduledJob.Companion.SCHEDULED_JO
 import org.opensearch.commons.alerting.model.Workflow
 import org.opensearch.commons.authuser.User
 import org.opensearch.commons.utils.recreateObject
+import org.opensearch.index.IndexNotFoundException
 import org.opensearch.index.query.QueryBuilders
 import org.opensearch.rest.RestRequest
 import org.opensearch.rest.RestStatus
@@ -63,10 +65,10 @@ import org.opensearch.tasks.Task
 import org.opensearch.transport.TransportService
 import java.util.stream.Collectors
 
-private val log = LogManager.getLogger(TransportIndexCompositeWorkflowAction::class.java)
+private val log = LogManager.getLogger(TransportIndexWorkflowAction::class.java)
 private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 
-class TransportIndexCompositeWorkflowAction @Inject constructor(
+class TransportIndexWorkflowAction @Inject constructor(
     transportService: TransportService,
     val client: Client,
     actionFilters: ActionFilters,
@@ -166,7 +168,22 @@ class TransportIndexCompositeWorkflowAction @Inject constructor(
     ) {
         fun resolveUserAndStart() {
             scope.launch {
-                validateRequest(request, actionListener)
+                try {
+                    validateRequest(request)
+                } catch (e: Exception) {
+                    if (e is IndexNotFoundException) {
+                        actionListener.onFailure(
+                            OpenSearchStatusException(
+                                "Monitors not found",
+                                RestStatus.NOT_FOUND
+                            )
+                        )
+                    } else {
+                        actionListener.onFailure(e)
+                    }
+                    return@launch
+                }
+
                 if (user == null) {
                     // Security is disabled, add empty user to Monitor. user is null for older versions.
                     request.workflow = request.workflow
@@ -456,27 +473,41 @@ class TransportIndexCompositeWorkflowAction @Inject constructor(
         }
     }
 
-    suspend fun validateRequest(request: IndexWorkflowRequest, listener: ActionListener<IndexWorkflowResponse>) {
-        val compositeInput = request.workflow.inputs.get(0) as CompositeInput
+    suspend fun validateRequest(request: IndexWorkflowRequest) {
+        if (request.workflow.inputs.isEmpty())
+            throw AlertingException.wrap(IllegalArgumentException("Input list can not be empty."))
+
+        if (request.workflow.inputs[0] !is CompositeInput)
+            throw AlertingException.wrap(IllegalArgumentException("When creating a workflow input must be CompositeInput"))
+
+        val compositeInput = request.workflow.inputs[0] as CompositeInput
         val monitorIds = compositeInput.sequence.delegates.stream().map { it.monitorId }.collect(Collectors.toList())
-        validateDuplicateDelegateMonitorReferenceExists(monitorIds, listener)
-        validateSequenceOrdering(compositeInput.sequence.delegates, listener)
-        validateChainedFindings(compositeInput.sequence.delegates, listener)
-        val delegateMonitors = getDelegateMonitors(monitorIds, listener)
-        validateDelegateMonitorsExist(monitorIds, delegateMonitors, listener)
-        // todo: validate that user has roles to reference delegate monitors
+
+        if (monitorIds.isNullOrEmpty())
+            throw AlertingException.wrap(IllegalArgumentException("Delegates list can not be empty."))
+
+        validateDuplicateDelegateMonitorReferenceExists(monitorIds)
+        validateSequenceOrdering(compositeInput.sequence.delegates)
+        validateChainedFindings(compositeInput.sequence.delegates)
+        val delegateMonitors = getDelegateMonitors(monitorIds)
+        validateDelegateMonitorsExist(monitorIds, delegateMonitors)
+        validateChainedFindingsMonitors(compositeInput.sequence.delegates, delegateMonitors)
     }
 
-    private fun validateChainedFindings(delegates: List<Delegate>, listener: ActionListener<IndexWorkflowResponse>) {
+    private fun validateChainedFindings(delegates: List<Delegate>) {
         val monitorIdOrderMap: Map<String, Int> = delegates.associate { it.monitorId to it.order }
         delegates.forEach {
             if (it.chainedFindings != null) {
                 if (monitorIdOrderMap.containsKey(it.chainedFindings!!.monitorId) == false) {
-                    listener.onFailure(Exception("Chained Findings Monitor ${it.chainedFindings!!.monitorId} doesn't exist in sequence"))
+                    throw AlertingException.wrap(
+                        IllegalArgumentException(
+                            "Chained Findings Monitor ${it.chainedFindings!!.monitorId} doesn't exist in sequence"
+                        )
+                    )
                 }
-                if (it.order <= monitorIdOrderMap.get(it.chainedFindings!!.monitorId)!!) {
-                    listener.onFailure(
-                        Exception(
+                if (it.order <= monitorIdOrderMap[it.chainedFindings!!.monitorId]!!) {
+                    throw AlertingException.wrap(
+                        IllegalArgumentException(
                             "Chained Findings Monitor ${it.chainedFindings!!.monitorId} should be executed before monitor ${it.monitorId}"
                         )
                     )
@@ -485,39 +516,51 @@ class TransportIndexCompositeWorkflowAction @Inject constructor(
         }
     }
 
-    private fun validateSequenceOrdering(delegates: List<Delegate>, listener: ActionListener<IndexWorkflowResponse>) {
+    private fun validateChainedFindingsMonitors(delegates: List<Delegate>, monitorDelegates: List<Monitor>) {
+        val monitorsById = monitorDelegates.associateBy { it.id }
+        delegates.forEach {
+            if (it.chainedFindings != null) {
+                val chainedFindingMonitor = monitorsById[it.chainedFindings!!.monitorId] ?: throw AlertingException.wrap(
+                    IllegalArgumentException("Chained finding monitor doesn't exist")
+                )
+
+                if (chainedFindingMonitor.isQueryLevelMonitor()) {
+                    throw AlertingException.wrap(IllegalArgumentException("Query level monitor can't be part of chained findings"))
+                }
+            }
+        }
+    }
+
+    private fun validateSequenceOrdering(delegates: List<Delegate>) {
         val orderSet = delegates.stream().filter { it.order > 0 }.map { it.order }.collect(Collectors.toSet())
         if (orderSet.size != delegates.size) {
-            listener.onFailure(Exception("Sequence ordering of delegate monitor shouldn't contain duplicate order values"))
+            throw AlertingException.wrap(IllegalArgumentException("Sequence ordering of delegate monitor shouldn't contain duplicate order values"))
         }
     }
 
     private fun validateDuplicateDelegateMonitorReferenceExists(
-        monitorIds: MutableList<String>,
-        listener: ActionListener<IndexWorkflowResponse>
+        monitorIds: MutableList<String>
     ) {
         if (monitorIds.toSet().size != monitorIds.size) {
-            listener.onFailure(Exception("duplicate is not allowed"))
+            throw AlertingException.wrap(IllegalArgumentException("Duplicate delegates not allowed"))
         }
     }
 
     private fun validateDelegateMonitorsExist(
         monitorIds: List<String>,
-        delegateMonitors: List<Monitor>,
-        actionListener: ActionListener<IndexWorkflowResponse>
+        delegateMonitors: List<Monitor>
     ) {
         val reqMonitorIds: MutableList<String> = monitorIds as MutableList<String>
         delegateMonitors.forEach {
             reqMonitorIds.remove(it.id)
         }
         if (reqMonitorIds.isNotEmpty()) {
-            actionListener.onFailure(Exception("${reqMonitorIds.joinToString { "," }} are not valid monitor ids"))
+            throw AlertingException.wrap(IllegalArgumentException(("${reqMonitorIds.joinToString()} are not valid monitor ids")))
         }
     }
 
     private suspend fun getDelegateMonitors(
-        monitorIds: MutableList<String>,
-        actionListener: ActionListener<IndexWorkflowResponse>
+        monitorIds: MutableList<String>
     ): List<Monitor> {
         val query = QueryBuilders.boolQuery().filter(QueryBuilders.termsQuery("_id", monitorIds))
         val searchSource = SearchSourceBuilder().query(query)
@@ -527,20 +570,15 @@ class TransportIndexCompositeWorkflowAction @Inject constructor(
         if (response.isTimedOut) {
             return monitors
         }
-        try {
-            for (hit in response.hits) {
-                XContentType.JSON.xContent().createParser(
-                    xContentRegistry,
-                    LoggingDeprecationHandler.INSTANCE, hit.sourceAsString
-                ).use { hitsParser ->
-                    val monitor = ScheduledJob.parse(hitsParser, hit.id, hit.version)
-                    monitors.add(monitor as Monitor)
-                }
+        for (hit in response.hits) {
+            XContentType.JSON.xContent().createParser(
+                xContentRegistry,
+                LoggingDeprecationHandler.INSTANCE, hit.sourceAsString
+            ).use { hitsParser ->
+                val monitor = ScheduledJob.parse(hitsParser, hit.id, hit.version)
+                monitors.add(monitor as Monitor)
             }
-            return monitors
-        } catch (e: Exception) {
-            actionListener.onFailure(e)
-            return listOf()
         }
+        return monitors
     }
 }

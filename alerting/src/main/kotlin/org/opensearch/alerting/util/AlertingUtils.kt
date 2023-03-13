@@ -11,6 +11,7 @@ import org.opensearch.action.index.IndexResponse
 import org.opensearch.action.support.WriteRequest
 import org.opensearch.alerting.model.BucketLevelTriggerRunResult
 import org.opensearch.alerting.model.MonitorMetadata
+import org.opensearch.alerting.model.WorkflowMetadata
 import org.opensearch.alerting.model.destination.Destination
 import org.opensearch.alerting.opensearchapi.suspendUntil
 import org.opensearch.alerting.settings.AlertingSettings
@@ -53,6 +54,8 @@ fun Destination.isAllowed(allowList: List<String>): Boolean = allowList.contains
 fun Destination.isTestAction(): Boolean = this.type == DestinationType.TEST_ACTION
 
 fun Monitor.isDocLevelMonitor(): Boolean = this.monitorType == Monitor.MonitorType.DOC_LEVEL_MONITOR
+
+fun Monitor.isQueryLevelMonitor(): Boolean = this.monitorType == Monitor.MonitorType.QUERY_LEVEL_MONITOR
 
 /**
  * Since buckets can have multi-value keys, this converts the bucket key values to a string that can be used
@@ -128,6 +131,16 @@ suspend fun updateMonitorMetadata(client: Client, settings: Settings, monitorMet
         .setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE)
         .source(monitorMetadata.toXContent(XContentFactory.jsonBuilder(), ToXContent.MapParams(mapOf("with_type" to "true"))))
         .id(monitorMetadata.id)
+        .timeout(AlertingSettings.INDEX_TIMEOUT.get(settings))
+
+    return client.suspendUntil { client.index(indexRequest, it) }
+}
+
+suspend fun updateWorkflowMetadata(client: Client, settings: Settings, workflowMetadata: WorkflowMetadata): IndexResponse {
+    val indexRequest = IndexRequest(ScheduledJob.SCHEDULED_JOBS_INDEX)
+        .setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE)
+        .source(workflowMetadata.toXContent(XContentFactory.jsonBuilder(), ToXContent.MapParams(mapOf("with_type" to "true"))))
+        .id(workflowMetadata.id)
         .timeout(AlertingSettings.INDEX_TIMEOUT.get(settings))
 
     return client.suspendUntil { client.index(indexRequest, it) }

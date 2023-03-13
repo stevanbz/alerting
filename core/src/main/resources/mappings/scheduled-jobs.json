@@ -404,20 +404,30 @@
         "inputs": {
           "type": "nested",
           "properties": {
-            "search": {
+            "composite_input": {
+              "type": "nested",
               "properties": {
-                "indices": {
-                  "type": "text",
-                  "fields": {
-                    "keyword": {
-                      "type": "keyword",
-                      "ignore_above": 256
+                "sequence": {
+                  "properties": {
+                    "delegates": {
+                      "type": "nested",
+                      "properties": {
+                        "order": {
+                          "type": "integer"
+                        },
+                        "monitor_id": {
+                          "type": "keyword"
+                        },
+                        "chained_findings": {
+                          "properties": {
+                            "monitor_id": {
+                              "type": "keyword"
+                            }
+                          }
+                        }
+                      }
                     }
                   }
-                },
-                "query": {
-                  "type": "object",
-                  "enabled": false
                 }
               }
             }
@@ -808,6 +818,29 @@
         "last_run_context": {
           "type": "object",
           "enabled": false
+        }
+      }
+    },
+    "workflow_metadata" : {
+      "properties": {
+        "workflow_id": {
+          "type": "keyword"
+        },
+        "monitor_ids": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "latest_run_time": {
+          "type": "date",
+          "format": "strict_date_time||epoch_millis"
+        },
+        "latest_execution_id": {
+          "type": "keyword"
         }
       }
     }

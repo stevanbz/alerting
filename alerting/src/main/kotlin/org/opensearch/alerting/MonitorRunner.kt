@@ -26,6 +26,7 @@ import org.opensearch.alerting.util.destinationmigration.publishLegacyNotificati
 import org.opensearch.alerting.util.destinationmigration.sendNotification
 import org.opensearch.alerting.util.isAllowed
 import org.opensearch.alerting.util.isTestAction
+import org.opensearch.alerting.workflow.WorkflowRunContext
 import org.opensearch.client.node.NodeClient
 import org.opensearch.common.Strings
 import org.opensearch.commons.alerting.model.Monitor
@@ -41,7 +42,8 @@ abstract class MonitorRunner {
         monitorCtx: MonitorRunnerExecutionContext,
         periodStart: Instant,
         periodEnd: Instant,
-        dryRun: Boolean
+        dryRun: Boolean,
+        workflowRunContext: WorkflowRunContext? = null
     ): MonitorRunResult<*>
 
     suspend fun runAction(
@@ -181,7 +183,11 @@ abstract class MonitorRunner {
         return NotificationActionConfigs(destination, channel)
     }
 
-    protected fun createMonitorMetadata(monitorId: String): MonitorMetadata {
-        return MonitorMetadata("$monitorId-metadata", monitorId, emptyList(), emptyMap())
+    protected fun createMonitorMetadata(monitorId: String, workflowId: String? = null): MonitorMetadata {
+        return if (workflowId.isNullOrEmpty()) {
+            MonitorMetadata("$monitorId-metadata", monitorId, emptyList(), emptyMap())
+        } else {
+            MonitorMetadata("$monitorId-$workflowId-metadata", monitorId, emptyList(), emptyMap())
+        }
     }
 }

@@ -51,6 +51,28 @@ class AlertingConfigAccessor {
             }
         }
 
+        suspend fun getWorkflowMetadata(client: Client, xContentRegistry: NamedXContentRegistry, metadataId: String): WorkflowMetadata? {
+            return try {
+                val jobSource = getAlertingConfigDocumentSource(client, "Workflow Metadata", metadataId)
+                withContext(Dispatchers.IO) {
+                    val xcp = XContentHelper.createParser(
+                        xContentRegistry, LoggingDeprecationHandler.INSTANCE,
+                        jobSource, XContentType.JSON
+                    )
+                    XContentParserUtils.ensureExpectedToken(XContentParser.Token.START_OBJECT, xcp.nextToken(), xcp)
+                    WorkflowMetadata.parse(xcp)
+                }
+            } catch (e: IllegalStateException) {
+                if (e.message?.equals("Workflow Metadata document with id $metadataId not found or source is empty") == true) {
+                    return null
+                } else throw e
+            } catch (e: IndexNotFoundException) {
+                if (e.message?.equals("no such index [.opendistro-alerting-config]") == true) {
+                    return null
+                } else throw e
+            }
+        }
+
         suspend fun getEmailAccountInfo(client: Client, xContentRegistry: NamedXContentRegistry, emailAccountId: String): EmailAccount {
             val source = getAlertingConfigDocumentSource(client, "Email account", emailAccountId)
             return withContext(Dispatchers.IO) {
