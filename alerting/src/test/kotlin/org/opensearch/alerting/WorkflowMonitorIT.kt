@@ -361,6 +361,45 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         assertEquals("Delegate1 id not correct", monitorResponse1.id, delegate1.monitorId)
     }
 
+    fun `test update workflow doesn't exist failure`() {
+        val docQuery1 = DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3")
+        val docLevelInput = DocLevelMonitorInput(
+            "description", listOf(index), listOf(docQuery1)
+        )
+        val trigger = randomDocumentLevelTrigger(condition = ALWAYS_RUN)
+        val customFindingsIndex = "custom_findings_index"
+        val customFindingsIndexPattern = "custom_findings_index-1"
+        val customQueryIndex = "custom_alerts_index"
+        val monitor1 = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger),
+            dataSources = DataSources(
+                queryIndex = customQueryIndex,
+                findingsIndex = customFindingsIndex,
+                findingsIndexPattern = customFindingsIndexPattern
+            )
+        )
+
+        val monitorResponse1 = createMonitor(monitor1)!!
+
+        val workflow = randomWorkflow(
+            monitorIds = listOf(monitorResponse1.id)
+        )
+        val workflowResponse = upsertWorkflow(workflow)!!
+        assertNotNull("Workflow creation failed", workflowResponse)
+
+        try {
+            upsertWorkflow(workflow, "testId", RestRequest.Method.PUT)
+        } catch (e: Exception) {
+            e.message?.let {
+                assertTrue(
+                    "Exception not returning GetWorkflow Action error ",
+                    it.contains("Workflow with testId is not found")
+                )
+            }
+        }
+    }
+
     fun `test get workflow`() {
         val docLevelInput = DocLevelMonitorInput(
             "description", listOf(index), listOf(DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3"))
