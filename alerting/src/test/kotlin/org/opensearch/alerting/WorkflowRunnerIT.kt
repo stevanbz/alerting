@@ -71,7 +71,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id, monitorResponse2.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -146,7 +146,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id, monitorResponse2.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -209,7 +209,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id, monitorResponse2.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -304,7 +304,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
 
         val docLevelMonitorResponse = createMonitor(docLevelMonitor)!!
         // 1. bucketMonitor (chainedFinding = null) 2. docMonitor (chainedFinding = bucketMonitor)
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(bucketLevelMonitorResponse.id, docLevelMonitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -441,7 +441,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
         val queryMonitorResponse = createMonitor(randomQueryLevelMonitor(inputs = listOf(queryMonitorInput), triggers = listOf(queryLevelTrigger)))!!
 
         // 1. docMonitor (chainedFinding = null) 2. bucketMonitor (chainedFinding = docMonitor) 3. docMonitor (chainedFinding = bucketMonitor) 4. queryMonitor (chainedFinding = docMonitor 3)
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(docLevelMonitorResponse.id, bucketLevelMonitorResponse.id, docLevelMonitorResponse1.id, queryMonitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -535,7 +535,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
         )
 
         val monitorResponse = createMonitor(monitor)!!
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -565,7 +565,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse = createMonitor(monitor)!!
 
-        val workflowRequest = randomWorkflowMonitor(
+        val workflowRequest = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflowRequest)!!

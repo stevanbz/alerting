@@ -53,7 +53,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         val monitorResponse1 = createMonitor(monitor1)!!
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        val workflow = randomWorkflowMonitor(
+        val workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse1.id, monitorResponse2.id)
         )
 
@@ -124,7 +124,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         val monitorResponse1 = createMonitor(monitor1)!!
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        val workflow = randomWorkflowMonitor(
+        val workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse1.id, monitorResponse2.id)
         )
 
@@ -149,7 +149,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         val monitorResponse3 = createMonitor(monitor3)!!
 
         val updatedWorkflowResponse = upsertWorkflow(
-            randomWorkflowMonitor(
+            randomWorkflow(
                 monitorIds = listOf(monitorResponse1.id, monitorResponse2.id, monitorResponse3.id)
             ),
             workflowResponse.id,
@@ -229,7 +229,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         val monitorResponse1 = createMonitor(monitor1)!!
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        val workflow = randomWorkflowMonitor(
+        val workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse1.id, monitorResponse2.id)
         )
 
@@ -243,7 +243,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         assertNotNull(workflowById)
 
         val updatedWorkflowResponse = upsertWorkflow(
-            randomWorkflowMonitor(
+            randomWorkflow(
                 monitorIds = listOf(monitorResponse2.id, monitorResponse1.id)
             ),
             workflowResponse.id,
@@ -315,7 +315,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         val monitorResponse1 = createMonitor(monitor1)!!
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        val workflow = randomWorkflowMonitor(
+        val workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse1.id, monitorResponse2.id)
         )
 
@@ -329,7 +329,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         assertNotNull(workflowById)
 
         val updatedWorkflowResponse = upsertWorkflow(
-            randomWorkflowMonitor(
+            randomWorkflow(
                 monitorIds = listOf(monitorResponse1.id)
             ),
             workflowResponse.id,
@@ -373,7 +373,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse = createMonitor(monitor)!!
 
-        val workflowRequest = randomWorkflowMonitor(
+        val workflowRequest = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
 
@@ -455,7 +455,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse = createMonitor(monitor)!!
 
-        val workflowRequest = randomWorkflowMonitor(
+        val workflowRequest = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflowRequest)!!
@@ -510,7 +510,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id, monitorResponse2.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -570,7 +570,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
 
         var monitorResponse = createMonitor(monitor)!!
 
-        val workflowRequest = randomWorkflowMonitor(
+        val workflowRequest = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflowRequest)!!
@@ -580,7 +580,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         assertNotNull(getWorkflowResponse)
         assertEquals(workflowId, getWorkflowResponse.id)
 
-        val workflowRequest2 = randomWorkflowMonitor(
+        val workflowRequest2 = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse2 = upsertWorkflow(workflowRequest2)!!
@@ -619,7 +619,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse = createMonitor(monitor)!!
 
-        val workflowRequest = randomWorkflowMonitor(
+        val workflowRequest = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
 
@@ -682,7 +682,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
     }
 
     fun `test create workflow without delegate failure`() {
-        val workflow = randomWorkflowMonitor(
+        val workflow = randomWorkflow(
             monitorIds = Collections.emptyList()
         )
         try {
@@ -715,14 +715,14 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         val monitorResponse1 = createMonitor(monitor1)!!
         val monitorResponse2 = createMonitor(monitor2)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse1.id, monitorResponse2.id)
         )
 
         val workflowResponse = upsertWorkflow(workflow)!!
         assertNotNull("Workflow creation failed", workflowResponse)
 
-        workflow = randomWorkflowMonitor(
+        workflow = randomWorkflow(
             id = workflowResponse.id,
             monitorIds = Collections.emptyList()
         )
@@ -739,7 +739,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
     }
 
     fun `test create workflow duplicate delegate failure`() {
-        val workflow = randomWorkflowMonitor(
+        val workflow = randomWorkflow(
             monitorIds = listOf("1", "1", "2")
         )
         try {
@@ -766,14 +766,14 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
 
         val monitorResponse = createMonitor(monitor)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
 
         val workflowResponse = upsertWorkflow(workflow)!!
         assertNotNull("Workflow creation failed", workflowResponse)
 
-        workflow = randomWorkflowMonitor(
+        workflow = randomWorkflow(
             id = workflowResponse.id,
             monitorIds = listOf("1", "1", "2")
         )
@@ -801,7 +801,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         )
         val monitorResponse = createMonitor(monitor)!!
 
-        val workflow = randomWorkflowMonitor(
+        val workflow = randomWorkflow(
             monitorIds = listOf("-1", monitorResponse.id)
         )
         try {
@@ -828,13 +828,13 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         )
         val monitorResponse = createMonitor(monitor)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
         assertNotNull("Workflow creation failed", workflowResponse)
 
-        workflow = randomWorkflowMonitor(
+        workflow = randomWorkflow(
             id = workflowResponse.id,
             monitorIds = listOf("-1", monitorResponse.id)
         )
@@ -857,7 +857,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
             Delegate(1, "monitor-2"),
             Delegate(2, "monitor-3")
         )
-        val workflow = randomWorkflowMonitorWithDelegates(
+        val workflow = randomWorkflowWithDelegates(
             delegates = delegates
         )
         try {
@@ -884,7 +884,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         )
         val monitorResponse = createMonitor(monitor)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -895,7 +895,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
             Delegate(1, "monitor-2"),
             Delegate(2, "monitor-3")
         )
-        workflow = randomWorkflowMonitorWithDelegates(
+        workflow = randomWorkflowWithDelegates(
             id = workflowResponse.id,
             delegates = delegates
         )
@@ -917,7 +917,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
             Delegate(2, "monitor-2", ChainedFindings("monitor-1")),
             Delegate(3, "monitor-3", ChainedFindings("monitor-x"))
         )
-        val workflow = randomWorkflowMonitorWithDelegates(
+        val workflow = randomWorkflowWithDelegates(
             delegates = delegates
         )
 
@@ -948,7 +948,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         val queryMonitor = randomQueryLevelMonitor()
         val queryMonitorResponse = createMonitor(queryMonitor)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(queryMonitorResponse.id, docMonitorResponse.id)
         )
         try {
@@ -967,7 +967,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         val delegates = listOf(
             Delegate(1, "monitor-1")
         )
-        val workflow = randomWorkflowMonitorWithDelegates(
+        val workflow = randomWorkflowWithDelegates(
             delegates = delegates
         )
 
@@ -995,7 +995,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         )
         val monitorResponse = createMonitor(monitor)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -1006,7 +1006,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
             Delegate(2, "monitor-2", ChainedFindings("monitor-1")),
             Delegate(3, "monitor-3", ChainedFindings("monitor-x"))
         )
-        workflow = randomWorkflowMonitorWithDelegates(
+        workflow = randomWorkflowWithDelegates(
             id = workflowResponse.id,
             delegates = delegates
         )
@@ -1029,7 +1029,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
             Delegate(3, "monitor-2", ChainedFindings("monitor-1")),
             Delegate(2, "monitor-3", ChainedFindings("monitor-2"))
         )
-        val workflow = randomWorkflowMonitorWithDelegates(
+        val workflow = randomWorkflowWithDelegates(
             delegates = delegates
         )
 
@@ -1057,7 +1057,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         )
         val monitorResponse = createMonitor(monitor)!!
 
-        var workflow = randomWorkflowMonitor(
+        var workflow = randomWorkflow(
             monitorIds = listOf(monitorResponse.id)
         )
         val workflowResponse = upsertWorkflow(workflow)!!
@@ -1068,7 +1068,7 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
             Delegate(3, "monitor-2", ChainedFindings("monitor-1")),
             Delegate(2, "monitor-3", ChainedFindings("monitor-2"))
         )
-        workflow = randomWorkflowMonitorWithDelegates(
+        workflow = randomWorkflowWithDelegates(
             delegates = delegates
         )
 

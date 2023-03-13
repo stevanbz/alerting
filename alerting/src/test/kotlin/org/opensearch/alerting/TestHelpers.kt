@@ -223,7 +223,7 @@ fun randomDocumentLevelMonitor(
     )
 }
 
-fun randomWorkflowMonitor(
+fun randomWorkflow(
     id: String = Workflow.NO_ID,
     monitorIds: List<String>,
     name: String = OpenSearchRestTestCase.randomAlphaOfLength(10),
@@ -255,7 +255,7 @@ fun randomWorkflowMonitor(
     )
 }
 
-fun randomWorkflowMonitorWithDelegates(
+fun randomWorkflowWithDelegates(
     id: String = Workflow.NO_ID,
     delegates: List<Delegate>,
     name: String = OpenSearchRestTestCase.randomAlphaOfLength(10),
