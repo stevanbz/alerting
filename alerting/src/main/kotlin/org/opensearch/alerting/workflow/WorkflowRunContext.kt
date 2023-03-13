@@ -8,6 +8,6 @@ package org.opensearch.alerting.workflow
 data class WorkflowRunContext(
     val workflowId: String,
     val chainedMonitorId: String?,
-    val workflowExecutionId: String,
+    val executionId: String,
     val matchingDocIdsPerIndex: Map<String, List<String>>
 )

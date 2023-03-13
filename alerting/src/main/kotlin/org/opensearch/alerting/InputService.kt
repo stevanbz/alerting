@@ -79,7 +79,7 @@ class InputService(
                         val rewrittenQuery = AggregationQueryRewriter.rewriteQuery(deepCopyQuery(input.query), prevResult, monitor.triggers)
 
                         // Rewrite query to consider the doc ids per given index
-                        if (chainedFindingExist(matchingDocIdsPerIndex)) {
+                        if (chainedFindingExist(matchingDocIdsPerIndex) && rewrittenQuery.query() != null) {
                             val updatedSourceQuery = updateInputQueryWithFindingDocIds(rewrittenQuery.query(), matchingDocIdsPerIndex!!)
                             rewrittenQuery.query(updatedSourceQuery)
                         }

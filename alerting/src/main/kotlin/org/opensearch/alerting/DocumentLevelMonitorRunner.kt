@@ -214,7 +214,7 @@ object DocumentLevelMonitorRunner : MonitorRunner() {
                 docsToQueries,
                 queryToDocIds,
                 dryrun,
-                workflowRunContext?.workflowExecutionId
+                workflowRunContext?.executionId
             )
         }
 

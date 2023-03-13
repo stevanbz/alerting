@@ -30,6 +30,7 @@ import java.lang.Exception
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.NoSuchElementException
 import java.util.concurrent.ExecutionException
 
 class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
@@ -161,7 +162,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
             "test_field_1" : "us-west-2"
         }"""
         indexDoc(index, "1", testDoc1)
-
+        // First execution
         val workflowId = workflowResponse.id
         val executeWorkflowResponse = executeWorkflow(workflowById, workflowId, false)!!
         val monitorsRunResults = executeWorkflowResponse.workflowRunResult.workflowRunResult
@@ -174,7 +175,7 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
             executeWorkflowResponse.workflowRunResult.executionId,
             workflowMetadata!!.latestExecutionId
         )
-
+        // Second execution
         val executeWorkflowResponse1 = executeWorkflow(workflowById, workflowId, false)!!
         val monitorsRunResults1 = executeWorkflowResponse1.workflowRunResult.workflowRunResult
         assertEquals(2, monitorsRunResults1.size)
@@ -186,6 +187,58 @@ class WorkflowRunnerIT : WorkflowSingleNodeTestCase() {
             executeWorkflowResponse1.workflowRunResult.executionId,
             workflowMetadata1!!.latestExecutionId
         )
+    }
+
+    fun `test execute workflow dryrun verify workflow metadata not created`() {
+        val docQuery1 = DocLevelQuery(query = "test_field_1:\"us-west-2\"", name = "3")
+        val docLevelInput1 = DocLevelMonitorInput("description", listOf(index), listOf(docQuery1))
+        val trigger1 = randomDocumentLevelTrigger(condition = ALWAYS_RUN)
+        var monitor1 = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput1),
+            triggers = listOf(trigger1)
+        )
+        val monitorResponse = createMonitor(monitor1)!!
+
+        val docQuery2 = DocLevelQuery(query = "source.ip.v6.v2:16645", name = "4")
+        val docLevelInput2 = DocLevelMonitorInput("description", listOf(index), listOf(docQuery2))
+        val trigger2 = randomDocumentLevelTrigger(condition = ALWAYS_RUN)
+        var monitor2 = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput2),
+            triggers = listOf(trigger2),
+        )
+
+        val monitorResponse2 = createMonitor(monitor2)!!
+
+        var workflow = randomWorkflowMonitor(
+            monitorIds = listOf(monitorResponse.id, monitorResponse2.id)
+        )
+        val workflowResponse = upsertWorkflow(workflow)!!
+        val workflowById = searchWorkflow(workflowResponse.id)
+        assertNotNull(workflowById)
+
+        var testTime = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(ZonedDateTime.now().truncatedTo(ChronoUnit.MILLIS))
+        // Matches monitor1
+        val testDoc1 = """{
+            "message" : "This is an error from IAD region",
+            "source.ip.v6.v2" : 16644, 
+            "test_strict_date_time" : "$testTime",
+            "test_field_1" : "us-west-2"
+        }"""
+        indexDoc(index, "1", testDoc1)
+        // First execution
+        val workflowId = workflowResponse.id
+        val executeWorkflowResponse = executeWorkflow(workflowById, workflowId, true)
+        assertNotNull("Workflow run result is null", executeWorkflowResponse)
+        val monitorsRunResults = executeWorkflowResponse!!.workflowRunResult.workflowRunResult
+        assertEquals(2, monitorsRunResults.size)
+
+        var exception: Exception? = null
+        try {
+            searchWorkflowMetadata(id = workflowId)
+        } catch (ex: Exception) {
+            exception = ex
+        }
+        assertTrue(exception is NoSuchElementException)
     }
 
     fun `test execute workflow with custom alerts and finding index with bucket level doc level delegates when bucket level delegate is used in chained finding`() {
