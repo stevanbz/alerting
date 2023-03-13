@@ -43,11 +43,12 @@ class RestDeleteWorkflowAction : BaseRestHandler() {
         log.debug("${request.method()} ${AlertingPlugin.WORKFLOW_BASE_URI}/{workflowID}")
 
         val workflowId = request.param("workflowID")
-        log.debug("${request.method()} ${AlertingPlugin.WORKFLOW_BASE_URI}/$workflowId")
+        val deleteDelegateMonitors = request.paramAsBoolean("deleteDelegateMonitors", false)
+        log.debug("${request.method()} ${request.uri()}")
 
         val refreshPolicy =
             WriteRequest.RefreshPolicy.parse(request.param(REFRESH, WriteRequest.RefreshPolicy.IMMEDIATE.value))
-        val deleteWorkflowRequest = DeleteWorkflowRequest(workflowId, true, refreshPolicy)
+        val deleteWorkflowRequest = DeleteWorkflowRequest(workflowId, deleteDelegateMonitors, refreshPolicy)
 
         return RestChannelConsumer { channel ->
             client.execute(

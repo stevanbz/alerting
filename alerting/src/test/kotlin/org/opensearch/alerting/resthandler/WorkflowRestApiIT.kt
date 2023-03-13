@@ -334,4 +334,91 @@ class WorkflowRestApiIT : WorkflowRestTestCase() {
             }
         }
     }
+
+    fun `test delete workflow delete delegate monitors`() {
+        val query = randomQueryLevelMonitor()
+        val monitor = createMonitor(query)
+
+        val workflowRequest = randomWorkflow(
+            monitorIds = listOf(monitor.id)
+        )
+        val workflowResponse = createWorkflow(workflowRequest)
+        val workflowId = workflowResponse.id
+        val getWorkflowResponse = getWorkflow(workflowResponse.id)
+
+        assertNotNull(getWorkflowResponse)
+        assertEquals(workflowId, getWorkflowResponse.id)
+
+        client().makeRequest("DELETE", getWorkflowResponse.relativeUrl().plus("?deleteDelegateMonitors=true"))
+
+        // Verify that the workflow is deleted
+        try {
+            getWorkflow(workflowId)
+        } catch (e: ResponseException) {
+            assertEquals(RestStatus.NOT_FOUND, e.response.restStatus())
+            e.message?.let {
+                assertTrue(
+                    "Exception not returning GetWorkflow Action error ",
+                    it.contains("Workflow not found.")
+                )
+            }
+        }
+
+        // Verify that delegate monitor is deleted
+        try {
+            getMonitor(monitor.id)
+        } catch (e: ResponseException) {
+            assertEquals(RestStatus.NOT_FOUND, e.response.restStatus())
+            e.message?.let {
+                assertTrue(
+                    "Exception not returning GetWorkflow Action error ",
+                    it.contains("Monitor not found.")
+                )
+            }
+        }
+    }
+
+    fun `test delete workflow preserve delegate monitors`() {
+        val query = randomQueryLevelMonitor()
+        val monitor = createMonitor(query)
+
+        val workflowRequest = randomWorkflow(
+            monitorIds = listOf(monitor.id)
+        )
+        val workflowResponse = createWorkflow(workflowRequest)
+        val workflowId = workflowResponse.id
+        val getWorkflowResponse = getWorkflow(workflowResponse.id)
+
+        assertNotNull(getWorkflowResponse)
+        assertEquals(workflowId, getWorkflowResponse.id)
+
+        client().makeRequest("DELETE", getWorkflowResponse.relativeUrl().plus("?deleteDelegateMonitors=false"))
+
+        // Verify that the workflow is deleted
+        try {
+            getWorkflow(workflowId)
+        } catch (e: ResponseException) {
+            assertEquals(RestStatus.NOT_FOUND, e.response.restStatus())
+            e.message?.let {
+                assertTrue(
+                    "Exception not returning GetWorkflow Action error ",
+                    it.contains("Workflow not found.")
+                )
+            }
+        }
+
+        // Verify that delegate monitor is not deleted
+        val delegateMonitor = getMonitor(monitor.id)
+        assertNotNull(delegateMonitor)
+    }
+
+    @Throws(Exception::class)
+    fun `test deleting a workflow that doesn't exist`() {
+        try {
+            client().makeRequest("DELETE", "$WORKFLOW_ALERTING_BASE_URI/foobarbaz")
+            fail("expected 404 ResponseException")
+        } catch (e: ResponseException) {
+            assertEquals(RestStatus.NOT_FOUND, e.response.restStatus())
+        }
+    }
 }

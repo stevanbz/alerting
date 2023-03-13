@@ -6,6 +6,7 @@ package org.opensearch.alerting.resthandler
 
 import org.opensearch.action.support.WriteRequest
 import org.opensearch.alerting.AlertingPlugin
+import org.opensearch.alerting.util.AlertingException
 import org.opensearch.alerting.util.IF_PRIMARY_TERM
 import org.opensearch.alerting.util.IF_SEQ_NO
 import org.opensearch.alerting.util.REFRESH
@@ -53,7 +54,7 @@ class RestIndexWorkflowAction : BaseRestHandler() {
     override fun prepareRequest(request: RestRequest, client: NodeClient): RestChannelConsumer {
         val id = request.param("workflowID", Workflow.NO_ID)
         if (request.method() == RestRequest.Method.PUT && Workflow.NO_ID == id) {
-            throw IllegalArgumentException("Missing workflow ID")
+            throw AlertingException.wrap(IllegalArgumentException("Missing workflow ID"))
         }
 
         // Validate request by parsing JSON to Monitor
