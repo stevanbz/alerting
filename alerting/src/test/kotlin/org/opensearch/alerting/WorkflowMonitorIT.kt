@@ -197,6 +197,92 @@ class WorkflowMonitorIT : WorkflowSingleNodeTestCase() {
         )
     }
 
+    fun `test update workflow change order of delegate monitors`() {
+        val docQuery1 = DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3")
+        val docLevelInput = DocLevelMonitorInput(
+            "description", listOf(index), listOf(docQuery1)
+        )
+        val trigger = randomDocumentLevelTrigger(condition = ALWAYS_RUN)
+        val customFindingsIndex = "custom_findings_index"
+        val customFindingsIndexPattern = "custom_findings_index-1"
+        val customQueryIndex = "custom_alerts_index"
+        val monitor1 = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger),
+            dataSources = DataSources(
+                queryIndex = customQueryIndex,
+                findingsIndex = customFindingsIndex,
+                findingsIndexPattern = customFindingsIndexPattern
+            )
+        )
+
+        val monitor2 = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger),
+            dataSources = DataSources(
+                queryIndex = customQueryIndex,
+                findingsIndex = customFindingsIndex,
+                findingsIndexPattern = customFindingsIndexPattern
+            )
+        )
+
+        val monitorResponse1 = createMonitor(monitor1)!!
+        val monitorResponse2 = createMonitor(monitor2)!!
+
+        val workflow = randomWorkflowMonitor(
+            monitorIds = listOf(monitorResponse1.id, monitorResponse2.id)
+        )
+
+        val workflowResponse = upsertWorkflow(workflow)!!
+        assertNotNull("Workflow creation failed", workflowResponse)
+        assertNotNull(workflowResponse.workflow)
+        assertNotEquals("response is missing Id", Monitor.NO_ID, workflowResponse.id)
+        assertTrue("incorrect version", workflowResponse.version > 0)
+
+        var workflowById = searchWorkflow(workflowResponse.id)!!
+        assertNotNull(workflowById)
+
+        val updatedWorkflowResponse = upsertWorkflow(
+            randomWorkflowMonitor(
+                monitorIds = listOf(monitorResponse2.id, monitorResponse1.id)
+            ),
+            workflowResponse.id,
+            RestRequest.Method.PUT
+        )!!
+
+        assertNotNull("Workflow creation failed", updatedWorkflowResponse)
+        assertNotNull(updatedWorkflowResponse.workflow)
+        assertEquals("Workflow id changed", workflowResponse.id, updatedWorkflowResponse.id)
+        assertTrue("incorrect version", updatedWorkflowResponse.version > 0)
+
+        workflowById = searchWorkflow(updatedWorkflowResponse.id)!!
+
+        // Verify workflow
+        assertNotEquals("response is missing Id", Monitor.NO_ID, workflowById.id)
+        assertTrue("incorrect version", workflowById.version > 0)
+        assertEquals("Workflow name not correct", updatedWorkflowResponse.workflow.name, workflowById.name)
+        assertEquals("Workflow owner not correct", updatedWorkflowResponse.workflow.owner, workflowById.owner)
+        assertEquals("Workflow input not correct", updatedWorkflowResponse.workflow.inputs, workflowById.inputs)
+
+        // Delegate verification
+        @Suppress("UNCHECKED_CAST")
+        val delegates = (workflowById.inputs as List<CompositeInput>)[0].sequence.delegates.sortedBy { it.order }
+        assertEquals("Delegates size not correct", 2, delegates.size)
+
+        val delegate1 = delegates[0]
+        assertNotNull(delegate1)
+        assertEquals("Delegate1 order not correct", 1, delegate1.order)
+        assertEquals("Delegate1 id not correct", monitorResponse2.id, delegate1.monitorId)
+
+        val delegate2 = delegates[1]
+        assertNotNull(delegate2)
+        assertEquals("Delegate2 order not correct", 2, delegate2.order)
+        assertEquals("Delegate2 id not correct", monitorResponse1.id, delegate2.monitorId)
+        assertEquals(
+            "Delegate2 Chained finding not correct", monitorResponse2.id, delegate2.chainedFindings!!.monitorId
+        )
+    }
+
     fun `test update workflow remove monitor success`() {
         val docQuery1 = DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3")
         val docLevelInput = DocLevelMonitorInput(
