@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.apache.logging.log4j.LogManager
+import org.opensearch.ExceptionsHelper
 import org.opensearch.OpenSearchException
 import org.opensearch.OpenSearchStatusException
 import org.opensearch.ResourceAlreadyExistsException
@@ -206,7 +207,7 @@ class TransportIndexWorkflowAction @Inject constructor(
 
                     override fun onFailure(t: Exception) {
                         // https://github.com/opensearch-project/alerting/issues/646
-                        if (t is ResourceAlreadyExistsException && t.message?.contains("already exists") == true) {
+                        if (ExceptionsHelper.unwrapCause(t) is ResourceAlreadyExistsException) {
                             scope.launch {
                                 // Wait for the yellow status
                                 val request = ClusterHealthRequest()
@@ -321,7 +322,6 @@ class TransportIndexWorkflowAction @Inject constructor(
         }
 
         private suspend fun indexWorkflow() {
-
             if (user != null) {
                 // Use the backend roles which is an intersection of the requested backend roles and the user's backend roles.
                 // Admins can pass in any backend role. Also if no backend role is passed in, all the user's backend roles are used.
@@ -555,6 +555,9 @@ class TransportIndexWorkflowAction @Inject constructor(
             reqMonitorIds.remove(it.id)
         }
         if (reqMonitorIds.isNotEmpty()) {
+            log.error("monitorIds: " + monitorIds.joinToString())
+            log.error("delegateMonitors: " + delegateMonitors.joinToString { it.id })
+            log.error("reqMonitorIds: " + reqMonitorIds.joinToString())
             throw AlertingException.wrap(IllegalArgumentException(("${reqMonitorIds.joinToString()} are not valid monitor ids")))
         }
     }
@@ -579,6 +582,14 @@ class TransportIndexWorkflowAction @Inject constructor(
                 monitors.add(monitor as Monitor)
             }
         }
+        if (monitors.isEmpty()) {
+            val searchSource1 = SearchSourceBuilder().query(QueryBuilders.matchAllQuery())
+            val searchRequest1 = SearchRequest(ScheduledJob.SCHEDULED_JOBS_INDEX).source(searchSource1)
+            val response1: SearchResponse = client.suspendUntil { client.search(searchRequest1, it) }
+
+            print(response1)
+        }
+
         return monitors
     }
 }
