@@ -14,7 +14,7 @@ import org.opensearch.alerting.randomDocumentLevelMonitor
 import org.opensearch.alerting.randomDocumentLevelTrigger
 import org.opensearch.alerting.randomQueryLevelMonitor
 import org.opensearch.alerting.randomWorkflow
-import org.opensearch.alerting.randomWorkflowMonitorWithDelegates
+import org.opensearch.alerting.randomWorkflowWithDelegates
 import org.opensearch.client.ResponseException
 import org.opensearch.commons.alerting.model.ChainedFindings
 import org.opensearch.commons.alerting.model.CompositeInput
@@ -194,7 +194,7 @@ class WorkflowRestApiIT : WorkflowRestTestCase() {
             Delegate(1, "monitor-2"),
             Delegate(2, "monitor-3")
         )
-        val workflow = randomWorkflowMonitorWithDelegates(
+        val workflow = randomWorkflowWithDelegates(
             delegates = delegates
         )
         try {
@@ -216,7 +216,7 @@ class WorkflowRestApiIT : WorkflowRestTestCase() {
             Delegate(2, "monitor-2", ChainedFindings("monitor-1")),
             Delegate(3, "monitor-3", ChainedFindings("monitor-x"))
         )
-        val workflow = randomWorkflowMonitorWithDelegates(
+        val workflow = randomWorkflowWithDelegates(
             delegates = delegates
         )
 
@@ -239,7 +239,7 @@ class WorkflowRestApiIT : WorkflowRestTestCase() {
             Delegate(3, "monitor-2", ChainedFindings("monitor-1")),
             Delegate(2, "monitor-3", ChainedFindings("monitor-2"))
         )
-        val workflow = randomWorkflowMonitorWithDelegates(
+        val workflow = randomWorkflowWithDelegates(
             delegates = delegates
         )
 
@@ -254,6 +254,153 @@ class WorkflowRestApiIT : WorkflowRestTestCase() {
                 )
             }
         }
+    }
+
+    fun `test update workflow add monitor success`() {
+        val index = createTestIndex()
+        val docQuery1 = DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3")
+        val docLevelInput = DocLevelMonitorInput(
+            "description", listOf(index), listOf(docQuery1)
+        )
+        val trigger = randomDocumentLevelTrigger(condition = ALWAYS_RUN)
+
+        val monitor = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger)
+        )
+        val monitorResponse = createMonitor(monitor)
+
+        val workflow = randomWorkflow(
+            monitorIds = listOf(monitorResponse.id)
+        )
+
+        val createResponse = client().makeRequest("POST", WORKFLOW_ALERTING_BASE_URI, emptyMap(), workflow.toHttpEntity())
+
+        assertEquals("Create workflow failed", RestStatus.CREATED, createResponse.restStatus())
+
+        val responseBody = createResponse.asMap()
+        val createdId = responseBody["_id"] as String
+        val createdVersion = responseBody["_version"] as Int
+
+        assertNotEquals("response is missing Id", Workflow.NO_ID, createdId)
+        assertTrue("incorrect version", createdVersion > 0)
+        assertEquals("Incorrect Location header", "$WORKFLOW_ALERTING_BASE_URI/$createdId", createResponse.getHeader("Location"))
+
+        val monitor2 = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger)
+        )
+
+        val monitorResponse2 = createMonitor(monitor2)
+
+        val updatedWorkflow = randomWorkflow(
+            id = createdId,
+            monitorIds = listOf(monitorResponse.id, monitorResponse2.id)
+        )
+
+        val updateResponse = client().makeRequest("PUT", updatedWorkflow.relativeUrl(), emptyMap(), updatedWorkflow.toHttpEntity())
+
+        assertEquals("Update workflow failed", RestStatus.OK, updateResponse.restStatus())
+
+        val updateResponseBody = updateResponse.asMap()
+        val updatedId = updateResponseBody["_id"] as String
+        val updatedVersion = updateResponseBody["_version"] as Int
+
+        assertNotEquals("response is missing Id", Workflow.NO_ID, updatedId)
+        assertTrue("incorrect version", updatedVersion > 0)
+
+        val workflowById = getWorkflow(updatedId)
+        assertNotNull(workflowById)
+        // Delegate verification
+        @Suppress("UNCHECKED_CAST")
+        val delegates = (workflowById.inputs as List<CompositeInput>)[0].sequence.delegates.sortedBy { it.order }
+        assertEquals("Delegates size not correct", 2, delegates.size)
+
+        val delegate1 = delegates[0]
+        assertNotNull(delegate1)
+        assertEquals("Delegate1 order not correct", 1, delegate1.order)
+        assertEquals("Delegate1 id not correct", monitorResponse.id, delegate1.monitorId)
+
+        val delegate2 = delegates[1]
+        assertNotNull(delegate2)
+        assertEquals("Delegate2 order not correct", 2, delegate2.order)
+        assertEquals("Delegate2 id not correct", monitorResponse2.id, delegate2.monitorId)
+        assertEquals(
+            "Delegate2 Chained finding not correct", monitorResponse.id, delegate2.chainedFindings!!.monitorId
+        )
+    }
+
+    fun `test update workflow remove monitor success`() {
+        val index = createTestIndex()
+        val docQuery1 = DocLevelQuery(query = "source.ip.v6.v1:12345", name = "3")
+        val docLevelInput = DocLevelMonitorInput(
+            "description", listOf(index), listOf(docQuery1)
+        )
+        val trigger = randomDocumentLevelTrigger(condition = ALWAYS_RUN)
+
+        val monitor = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger)
+        )
+        val monitorResponse = createMonitor(monitor)
+
+        val monitor2 = randomDocumentLevelMonitor(
+            inputs = listOf(docLevelInput),
+            triggers = listOf(trigger)
+        )
+
+        val monitorResponse2 = createMonitor(monitor2)
+
+        val workflow = randomWorkflow(
+            monitorIds = listOf(monitorResponse.id, monitorResponse2.id)
+        )
+
+        val createResponse = client().makeRequest("POST", WORKFLOW_ALERTING_BASE_URI, emptyMap(), workflow.toHttpEntity())
+
+        assertEquals("Create workflow failed", RestStatus.CREATED, createResponse.restStatus())
+
+        val responseBody = createResponse.asMap()
+        val createdId = responseBody["_id"] as String
+        val createdVersion = responseBody["_version"] as Int
+
+        assertNotEquals("response is missing Id", Workflow.NO_ID, createdId)
+        assertTrue("incorrect version", createdVersion > 0)
+        assertEquals("Incorrect Location header", "$WORKFLOW_ALERTING_BASE_URI/$createdId", createResponse.getHeader("Location"))
+
+        var workflowById = getWorkflow(createdId)
+        assertNotNull(workflowById)
+        // Delegate verification
+        @Suppress("UNCHECKED_CAST")
+        var delegates = (workflowById.inputs as List<CompositeInput>)[0].sequence.delegates.sortedBy { it.order }
+        assertEquals("Delegates size not correct", 2, delegates.size)
+
+        val updatedWorkflow = randomWorkflow(
+            id = createdId,
+            monitorIds = listOf(monitorResponse.id)
+        )
+
+        val updateResponse = client().makeRequest("PUT", updatedWorkflow.relativeUrl(), emptyMap(), updatedWorkflow.toHttpEntity())
+
+        assertEquals("Update workflow failed", RestStatus.OK, updateResponse.restStatus())
+
+        val updateResponseBody = updateResponse.asMap()
+        val updatedId = updateResponseBody["_id"] as String
+        val updatedVersion = updateResponseBody["_version"] as Int
+
+        assertNotEquals("response is missing Id", Workflow.NO_ID, updatedId)
+        assertTrue("incorrect version", updatedVersion > 0)
+
+        workflowById = getWorkflow(updatedId)
+        assertNotNull(workflowById)
+        // Delegate verification
+        @Suppress("UNCHECKED_CAST")
+        delegates = (workflowById.inputs as List<CompositeInput>)[0].sequence.delegates.sortedBy { it.order }
+        assertEquals("Delegates size not correct", 1, delegates.size)
+
+        val delegate1 = delegates[0]
+        assertNotNull(delegate1)
+        assertEquals("Delegate1 order not correct", 1, delegate1.order)
+        assertEquals("Delegate1 id not correct", monitorResponse.id, delegate1.monitorId)
     }
 
     @Throws(Exception::class)
