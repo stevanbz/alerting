@@ -34,6 +34,7 @@ import org.opensearch.alerting.settings.AlertingSettings.Companion.REQUEST_TIMEO
 import org.opensearch.alerting.settings.DestinationSettings.Companion.ALLOW_LIST
 import org.opensearch.alerting.util.AlertingException
 import org.opensearch.alerting.util.IndexUtils
+import org.opensearch.alerting.util.isADMonitor
 import org.opensearch.alerting.util.isQueryLevelMonitor
 import org.opensearch.client.Client
 import org.opensearch.cluster.service.ClusterService
@@ -517,8 +518,13 @@ class TransportIndexWorkflowAction @Inject constructor(
     }
 
     private fun validateChainedMonitorFindingsMonitors(delegates: List<Delegate>, monitorDelegates: List<Monitor>) {
+        infix fun <T> List<T>.equalsIgnoreOrder(other: List<T>) = this.size == other.size && this.toSet() == other.toSet()
+
         val monitorsById = monitorDelegates.associateBy { it.id }
         delegates.forEach {
+            val delegateMonitor = monitorsById[it.monitorId] ?: throw AlertingException.wrap(
+                IllegalArgumentException("Delegate monitor ${it.monitorId} doesn't exist")
+            )
             if (it.chainedMonitorFindings != null) {
                 val chainedFindingMonitor = monitorsById[it.chainedMonitorFindings!!.monitorId] ?: throw AlertingException.wrap(
                     IllegalArgumentException("Chained finding monitor doesn't exist")
@@ -527,7 +533,39 @@ class TransportIndexWorkflowAction @Inject constructor(
                 if (chainedFindingMonitor.isQueryLevelMonitor()) {
                     throw AlertingException.wrap(IllegalArgumentException("Query level monitor can't be part of chained findings"))
                 }
+
+                val delegateMonitorIndices = getMonitorIndices(delegateMonitor)
+
+                val chainedMonitorIndices = getMonitorIndices(chainedFindingMonitor)
+
+                if (!delegateMonitorIndices.equalsIgnoreOrder(chainedMonitorIndices)) {
+                    throw AlertingException.wrap(IllegalArgumentException("Delegate monitor and it's chained finding monitor must query the same indices"))
+                }
             }
+        }
+    }
+
+    /**
+     * Returns list of indices for the given monitor depending on it's type
+     */
+    private fun getMonitorIndices(monitor: Monitor): List<String> {
+        return when (monitor.monitorType) {
+            Monitor.MonitorType.DOC_LEVEL_MONITOR -> (monitor.inputs[0] as DocLevelMonitorInput).indices
+            Monitor.MonitorType.BUCKET_LEVEL_MONITOR -> monitor.inputs.flatMap { s -> (s as SearchInput).indices }
+            Monitor.MonitorType.QUERY_LEVEL_MONITOR -> {
+                if (isADMonitor(monitor)) monitor.inputs.flatMap { s -> (s as SearchInput).indices }
+                else {
+                    val indices = mutableListOf<String>()
+                    for (input in monitor.inputs) {
+                        when (input) {
+                            is SearchInput -> indices.addAll(input.indices)
+                            else -> indices
+                        }
+                    }
+                    indices
+                }
+            }
+            else -> emptyList()
         }
     }
 
