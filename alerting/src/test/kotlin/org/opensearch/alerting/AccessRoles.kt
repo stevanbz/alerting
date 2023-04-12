@@ -5,6 +5,8 @@
 
 package org.opensearch.alerting
 
+import org.opensearch.commons.alerting.action.AlertingActions
+
 val ALL_ACCESS_ROLE = "all_access"
 val READALL_AND_MONITOR_ROLE = "readall_and_monitor"
 val ALERTING_FULL_ACCESS_ROLE = "alerting_full_access"
@@ -21,6 +23,7 @@ val ALERTING_EXECUTE_MONITOR_ACCESS = "alerting_execute_monitor_access"
 val ALERTING_DELETE_MONITOR_ACCESS = "alerting_delete_monitor_access"
 val ALERTING_GET_DESTINATION_ACCESS = "alerting_get_destination_access"
 val ALERTING_GET_ALERTS_ACCESS = "alerting_get_alerts_access"
+val ALERTING_INDEX_WORKFLOW_ACCESS = "alerting_index_workflow_access"
 
 val ROLE_TO_PERMISSION_MAPPING = mapOf(
     ALERTING_NO_ACCESS_ROLE to "",
@@ -34,5 +37,6 @@ val ROLE_TO_PERMISSION_MAPPING = mapOf(
     ALERTING_EXECUTE_MONITOR_ACCESS to "cluster:admin/opendistro/alerting/monitor/execute",
     ALERTING_DELETE_MONITOR_ACCESS to "cluster:admin/opendistro/alerting/monitor/delete",
     ALERTING_GET_DESTINATION_ACCESS to "cluster:admin/opendistro/alerting/destination/get",
-    ALERTING_GET_ALERTS_ACCESS to "cluster:admin/opendistro/alerting/alerts/get"
+    ALERTING_GET_ALERTS_ACCESS to "cluster:admin/opendistro/alerting/alerts/get",
+    ALERTING_INDEX_WORKFLOW_ACCESS to AlertingActions.INDEX_WORKFLOW_ACTION_NAME
 )
