@@ -530,6 +530,19 @@ abstract class AlertingRestTestCase : ODFERestTestCase() {
         return getMonitor(monitorId = monitor.id)
     }
 
+    @Suppress("UNCHECKED_CAST")
+    protected fun updateWorkflow(workflow: Workflow, refresh: Boolean = false): Workflow {
+        val response = client().makeRequest(
+            "PUT",
+            "${workflow.relativeUrl()}?refresh=$refresh",
+            emptyMap(),
+            workflow.toHttpEntity()
+        )
+        assertEquals("Unable to update a workflow", RestStatus.OK, response.restStatus())
+        assertUserNull(response.asMap()["workflow"] as Map<String, Any>)
+        return getWorkflow(workflowId = workflow.id)
+    }
+
     protected fun updateMonitorWithClient(
         client: RestClient,
         monitor: Monitor,

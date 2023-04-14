@@ -229,6 +229,7 @@ class SecureMonitorRestApiIT : AlertingRestTestCase() {
     }
 
     fun `test create monitor with an user without index read role`() {
+        // createTestIndex(TEST_NON_HR_INDEX)
         createUserWithTestDataAndCustomRole(
             user,
             TEST_HR_INDEX,

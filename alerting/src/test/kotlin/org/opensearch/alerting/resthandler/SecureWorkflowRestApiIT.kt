@@ -19,6 +19,7 @@ import org.opensearch.alerting.ALERTING_EXECUTE_MONITOR_ACCESS
 import org.opensearch.alerting.ALERTING_FULL_ACCESS_ROLE
 import org.opensearch.alerting.ALERTING_GET_ALERTS_ACCESS
 import org.opensearch.alerting.ALERTING_GET_MONITOR_ACCESS
+import org.opensearch.alerting.ALERTING_GET_WORKFLOW_ACCESS
 import org.opensearch.alerting.ALERTING_INDEX_MONITOR_ACCESS
 import org.opensearch.alerting.ALERTING_INDEX_WORKFLOW_ACCESS
 import org.opensearch.alerting.ALERTING_NO_ACCESS_ROLE
@@ -41,6 +42,9 @@ import org.opensearch.alerting.randomAction
 import org.opensearch.alerting.randomAlert
 import org.opensearch.alerting.randomBucketLevelMonitor
 import org.opensearch.alerting.randomBucketLevelTrigger
+import org.opensearch.alerting.randomDocLevelQuery
+import org.opensearch.alerting.randomDocumentLevelMonitor
+import org.opensearch.alerting.randomDocumentLevelTrigger
 import org.opensearch.alerting.randomQueryLevelMonitor
 import org.opensearch.alerting.randomQueryLevelTrigger
 import org.opensearch.alerting.randomTemplateScript
@@ -53,6 +57,7 @@ import org.opensearch.common.xcontent.XContentType
 import org.opensearch.common.xcontent.json.JsonXContent
 import org.opensearch.commons.alerting.aggregation.bucketselectorext.BucketSelectorExtAggregationBuilder
 import org.opensearch.commons.alerting.model.Alert
+import org.opensearch.commons.alerting.model.DocLevelMonitorInput
 import org.opensearch.commons.alerting.model.SearchInput
 import org.opensearch.commons.authuser.User
 import org.opensearch.commons.rest.SecureRestClientBuilder
@@ -64,6 +69,7 @@ import org.opensearch.search.aggregations.bucket.composite.CompositeAggregationB
 import org.opensearch.search.aggregations.bucket.composite.TermsValuesSourceBuilder
 import org.opensearch.search.builder.SearchSourceBuilder
 import org.opensearch.test.junit.annotations.TestLogging
+import java.time.Instant
 
 @TestLogging("level:DEBUG", reason = "Debug for tests.")
 @Suppress("UNCHECKED_CAST")
@@ -98,6 +104,7 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
 
     // Create Workflow related security tests
     fun `test create workflow with an user with alerting role`() {
+        createTestIndex(TEST_NON_HR_INDEX)
         createUserWithTestDataAndCustomRole(
             user,
             TEST_HR_INDEX,
@@ -171,27 +178,30 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf(TEST_HR_BACKEND_ROLE),
-            getClusterPermissionsFromCustomRole(ALERTING_INDEX_MONITOR_ACCESS)
+            getClusterPermissionsFromCustomRole(ALERTING_INDEX_WORKFLOW_ACCESS)
         )
         try {
+            val query = randomDocLevelQuery(tags = listOf())
+            val triggers = listOf(randomDocumentLevelTrigger(condition = Script("query[id=\"${query.id}\"]")))
+
             val monitor = createMonitor(
-                randomQueryLevelMonitor().copy(
+                randomDocumentLevelMonitor(
                     inputs = listOf(
-                        SearchInput(
+                        DocLevelMonitorInput(
                             indices = listOf(TEST_NON_HR_INDEX),
-                            query = SearchSourceBuilder().query(QueryBuilders.matchAllQuery())
+                            queries = listOf(query)
                         )
-                    )
+                    ),
+                    triggers = triggers
                 ),
                 true
             )
+
             val workflow = randomWorkflow(
                 monitorIds = listOf(monitor.id)
             )
 
-            val createResponse = userClient?.makeRequest("POST", WORKFLOW_ALERTING_BASE_URI, emptyMap(), workflow.toHttpEntity())
-            assertEquals("Create workflow failed", RestStatus.CREATED, createResponse?.restStatus())
-            fail("Expected 403 Method FORBIDDEN response")
+            userClient?.makeRequest("POST", WORKFLOW_ALERTING_BASE_URI, emptyMap(), workflow.toHttpEntity())
         } catch (e: ResponseException) {
             assertEquals("Unexpected status", RestStatus.FORBIDDEN, e.response.restStatus())
         } finally {
@@ -200,33 +210,37 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         }
     }
 
-    fun `test create monitor with disable filter by`() {
+    fun `test create workflow with disable filter by`() {
         disableFilterBy()
-        val monitor = randomQueryLevelMonitor()
-        val createResponse = client().makeRequest("POST", ALERTING_BASE_URI, emptyMap(), monitor.toHttpEntity())
-        assertEquals("Create monitor failed", RestStatus.CREATED, createResponse.restStatus())
-        assertUserNull(createResponse.asMap()["monitor"] as HashMap<String, Any>)
+        val monitor = createRandomMonitor(true)
+        val workflow = randomWorkflow(
+            monitorIds = listOf(monitor.id)
+        )
+        val createResponse = client().makeRequest("POST", WORKFLOW_ALERTING_BASE_URI, emptyMap(), workflow.toHttpEntity())
+        assertEquals("Create workflow failed", RestStatus.CREATED, createResponse.restStatus())
+        assertUserNull(createResponse.asMap()["workflow"] as HashMap<String, Any>)
     }
 
-    fun `test get monitor with an user with get monitor role`() {
+    fun `test get workflow with an user with get workflow role`() {
         createUserWithTestDataAndCustomRole(
             user,
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf(TEST_HR_BACKEND_ROLE),
-            getClusterPermissionsFromCustomRole(ALERTING_GET_MONITOR_ACCESS)
+            getClusterPermissionsFromCustomRole(ALERTING_GET_WORKFLOW_ACCESS)
         )
 
         val monitor = createRandomMonitor(true)
+        val workflow = createWorkflow(randomWorkflow(monitorIds = listOf(monitor.id)))
 
         try {
-            val getMonitorResponse = userClient?.makeRequest(
+            val getWorkflowResponse = userClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${monitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${workflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
-            assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
+            assertEquals("Get workflow failed", RestStatus.OK, getWorkflowResponse?.restStatus())
         } finally {
             deleteRoleAndRoleMapping(TEST_HR_ROLE)
         }
@@ -235,7 +249,7 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
     /*
     TODO: https://github.com/opensearch-project/alerting/issues/300
      */
-    fun `test get monitor with an user without get monitor role`() {
+    fun `test get workflow with an user without get monitor role`() {
         createUserWithTestDataAndCustomRole(
             user,
             TEST_HR_INDEX,
@@ -245,11 +259,12 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         )
 
         val monitor = createRandomMonitor(true)
+        val workflow = createWorkflow(randomWorkflow(monitorIds = listOf(monitor.id)))
 
         try {
             userClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${monitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${workflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
@@ -270,49 +285,54 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
     }
 
     // Query Monitors related security tests
-    fun `test update monitor with disable filter by`() {
+    fun `test update workflow with disable filter by`() {
         disableFilterBy()
-        val monitor = randomQueryLevelMonitor(enabled = true)
 
-        val createdMonitor = createMonitor(monitor = monitor)
+        val createdMonitor = createMonitor(monitor = randomQueryLevelMonitor(enabled = true))
+        val createdWorkflow = createWorkflow(
+            randomWorkflow(monitorIds = listOf(createdMonitor.id), enabled = true, enabledTime = Instant.now())
+        )
 
-        assertNotNull("The monitor was not created", createdMonitor)
-        assertTrue("The monitor was not enabled", createdMonitor.enabled)
+        assertNotNull("The workflow was not created", createdWorkflow)
+        assertTrue("The workflow was not enabled", createdWorkflow.enabled)
 
-        val monitorV2 = createdMonitor.copy(enabled = false, enabledTime = null)
-        val updatedMonitor = updateMonitor(monitor = monitorV2)
+        val workflowV2 = createdWorkflow.copy(enabled = false, enabledTime = null)
+        val updatedWorkflow = updateWorkflow(workflowV2)
 
-        assertFalse("The monitor was not disabled", updatedMonitor.enabled)
+        assertFalse("The monitor was not disabled", updatedWorkflow.enabled)
     }
 
-    fun `test update monitor with enable filter by`() {
+    fun `test update workflow with enable filter by`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
             // refer: `test create monitor with enable filter by`
             return
         }
-        val monitor = randomQueryLevelMonitor(enabled = true)
 
-        val createdMonitor = createMonitor(monitor = monitor)
+        val createdMonitor = createMonitorWithClient(
+            client = client(),
+            monitor = randomQueryLevelMonitor(enabled = true),
+            rbacRoles = listOf("admin")
+        )
+        val createdWorkflow = createWorkflow(
+            randomWorkflow(monitorIds = listOf(createdMonitor.id), enabled = true, enabledTime = Instant.now())
+        )
 
-        assertNotNull("The monitor was not created", createdMonitor)
-        assertTrue("The monitor was not enabled", createdMonitor.enabled)
+        assertNotNull("The workflow was not created", createdWorkflow)
+        assertTrue("The workflow was not enabled", createdWorkflow.enabled)
 
-        val monitorV2 = createdMonitor.copy(enabled = false, enabledTime = null)
-        val updatedMonitor = updateMonitor(monitor = monitorV2)
+        val workflowV2 = createdWorkflow.copy(enabled = false, enabledTime = null)
+        val updatedWorkflow = updateWorkflow(workflow = workflowV2)
 
-        assertFalse("The monitor was not disabled", updatedMonitor.enabled)
+        assertFalse("The monitor was not disabled", updatedWorkflow.enabled)
     }
 
-    fun `test create monitor with enable filter by with a user have access and without role has no access`() {
+    fun `test create workflow with enable filter by with a user have access and without role has no access`() {
         enableFilterBy()
         if (!isHttps()) {
-            // if security is disabled and filter by is enabled, we can't create monitor
-            // refer: `test create monitor with enable filter by`
             return
         }
-        val monitor = randomQueryLevelMonitor(enabled = true)
 
         createUserWithRoles(
             user,
@@ -321,8 +341,20 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             false
         )
 
-        val createdMonitor = createMonitorWithClient(userClient!!, monitor = monitor, listOf(TEST_HR_BACKEND_ROLE, "role2"))
+        val createdMonitor = createMonitorWithClient(
+            userClient!!,
+            monitor = randomQueryLevelMonitor(enabled = true),
+            listOf(TEST_HR_BACKEND_ROLE, "role2")
+        )
+
         assertNotNull("The monitor was not created", createdMonitor)
+
+        val createdWorkflow = createWorkflowWithClient(
+            userClient!!,
+            workflow = randomWorkflow(monitorIds = listOf(createdMonitor.id), enabled = true),
+            listOf(TEST_HR_BACKEND_ROLE, "role2")
+        )
+        assertNotNull("The workflow was not created", createdWorkflow)
 
         createUserRolesMapping(ALERTING_FULL_ACCESS_ROLE, arrayOf())
         createUserRolesMapping(READALL_AND_MONITOR_ROLE, arrayOf())
@@ -334,35 +366,84 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf("role2"),
-            getClusterPermissionsFromCustomRole(ALERTING_GET_MONITOR_ACCESS)
+            getClusterPermissionsFromCustomRole(ALERTING_GET_WORKFLOW_ACCESS)
         )
         val getUserClient = SecureRestClientBuilder(clusterHosts.toTypedArray(), isHttps(), getUser, getUser)
             .setSocketTimeout(60000).build()
 
-        val getMonitorResponse = getUserClient?.makeRequest(
+        val getWorkflowResponse = getUserClient?.makeRequest(
             "GET",
-            "$ALERTING_BASE_URI/${createdMonitor.id}",
+            "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
             null,
             BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
         )
-        assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
+        assertEquals("Get workflow failed", RestStatus.OK, getWorkflowResponse?.restStatus())
 
         // Remove backend role and ensure no access is granted after
         patchUserBackendRoles(getUser, arrayOf("role1"))
         try {
             getUserClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${createdMonitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
             fail("Expected Forbidden exception")
         } catch (e: ResponseException) {
-            assertEquals("Get monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Get workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             deleteRoleAndRoleMapping(TEST_HR_ROLE)
             deleteUser(getUser)
             getUserClient?.close()
+        }
+    }
+
+    fun `test create workflow test with enable filter by with a user have access and without role has no access`() {
+        enableFilterBy()
+        if (!isHttps()) {
+            return
+        }
+
+        createUserWithRoles(
+            user,
+            listOf(ALERTING_FULL_ACCESS_ROLE, READALL_AND_MONITOR_ROLE),
+            listOf(TEST_HR_BACKEND_ROLE, "role2"),
+            false
+        )
+
+        val createdMonitor = createMonitorWithClient(
+            userClient!!,
+            monitor = randomQueryLevelMonitor(enabled = true),
+            listOf("role2")
+        )
+
+        assertNotNull("The monitor was not created", createdMonitor)
+
+        val userWithDifferentRole = "role3User"
+
+        createUserWithRoles(
+            userWithDifferentRole,
+            listOf(ALERTING_FULL_ACCESS_ROLE, READALL_AND_MONITOR_ROLE),
+            listOf(TEST_HR_BACKEND_ROLE, "role3"),
+            false
+        )
+
+        val userWithDifferentRoleClient = SecureRestClientBuilder(clusterHosts.toTypedArray(), isHttps(), userWithDifferentRole, userWithDifferentRole)
+            .setSocketTimeout(60000).build()
+
+        try {
+            createWorkflowWithClient(
+                userWithDifferentRoleClient!!,
+                workflow = randomWorkflow(monitorIds = listOf(createdMonitor.id), enabled = true),
+                listOf("role3")
+            )
+            fail("Expected Forbidden exception")
+        } catch (e: ResponseException) {
+            assertEquals("Create workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+        } finally {
+            deleteRoleAndRoleMapping(TEST_HR_ROLE)
+            deleteUser(userWithDifferentRole)
+            userWithDifferentRoleClient?.close()
         }
     }
 
