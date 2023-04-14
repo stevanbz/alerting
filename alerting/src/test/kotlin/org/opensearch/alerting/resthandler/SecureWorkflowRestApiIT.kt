@@ -104,16 +104,25 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
 
     // Create Workflow related security tests
     fun `test create workflow with an user with alerting role`() {
-        createTestIndex(TEST_NON_HR_INDEX)
+        val clusterPermissions = listOf(
+            getClusterPermissionsFromCustomRole(ALERTING_INDEX_WORKFLOW_ACCESS),
+            getClusterPermissionsFromCustomRole(ALERTING_SEARCH_MONITOR_ONLY_ACCESS)
+        )
+
         createUserWithTestDataAndCustomRole(
             user,
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf(TEST_HR_BACKEND_ROLE),
-            getClusterPermissionsFromCustomRole(ALERTING_INDEX_WORKFLOW_ACCESS)
+            clusterPermissions
         )
         try {
-            val monitor = createRandomMonitor(true)
+            val monitor = createMonitor(
+                randomQueryLevelMonitor(
+                    inputs = listOf(SearchInput(listOf(TEST_HR_INDEX), SearchSourceBuilder().query(QueryBuilders.matchAllQuery()))),
+                ),
+                true
+            )
 
             val workflow = randomWorkflow(
                 monitorIds = listOf(monitor.id)

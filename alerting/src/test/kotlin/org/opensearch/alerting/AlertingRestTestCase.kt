@@ -71,6 +71,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.util.UUID
+import java.util.stream.Collectors
 import javax.management.MBeanServerInvocationHandler
 import javax.management.ObjectName
 import javax.management.remote.JMXConnectorFactory
@@ -1220,6 +1221,37 @@ abstract class AlertingRestTestCase : ODFERestTestCase() {
         client().performRequest(request)
     }
 
+    private fun createCustomIndexRole(name: String, index: String, clusterPermissions: List<String?>) {
+        val request = Request("PUT", "/_plugins/_security/api/roles/$name")
+
+        val clusterPermissionsStr =
+            clusterPermissions.stream().map { p: String? -> "\"" + p + "\"" }.collect(
+                Collectors.joining(",")
+            )
+
+        var entity = "{\n" +
+            "\"cluster_permissions\": [\n" +
+            "$clusterPermissionsStr\n" +
+            "],\n" +
+            "\"index_permissions\": [\n" +
+            "{\n" +
+            "\"index_patterns\": [\n" +
+            "\"$index\"\n" +
+            "],\n" +
+            "\"dls\": \"\",\n" +
+            "\"fls\": [],\n" +
+            "\"masked_fields\": [],\n" +
+            "\"allowed_actions\": [\n" +
+            "\"crud\"\n" +
+            "]\n" +
+            "}\n" +
+            "],\n" +
+            "\"tenant_permissions\": []\n" +
+            "}"
+        request.setJsonEntity(entity)
+        client().performRequest(request)
+    }
+
     fun createIndexRoleWithDocLevelSecurity(name: String, index: String, dlsQuery: String, clusterPermissions: String? = "") {
         val request = Request("PUT", "/_plugins/_security/api/roles/$name")
         var entity = "{\n" +
@@ -1303,6 +1335,19 @@ abstract class AlertingRestTestCase : ODFERestTestCase() {
         role: String,
         backendRoles: List<String>,
         clusterPermissions: String?
+    ) {
+        createUser(user, user, backendRoles.toTypedArray())
+        createTestIndex(index)
+        createCustomIndexRole(role, index, clusterPermissions)
+        createUserRolesMapping(role, arrayOf(user))
+    }
+
+    fun createUserWithTestDataAndCustomRole(
+        user: String,
+        index: String,
+        role: String,
+        backendRoles: List<String>,
+        clusterPermissions: List<String?>
     ) {
         createUser(user, user, backendRoles.toTypedArray())
         createTestIndex(index)
