@@ -952,51 +952,68 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         }
     }
 
-    fun `test delete monitor with disable filter by`() {
+    fun `test delete workflow with disable filter by`() {
         disableFilterBy()
         val monitor = randomQueryLevelMonitor(enabled = true)
 
         val createdMonitor = createMonitor(monitor = monitor)
+        val createdWorkflow = createWorkflow(workflow = randomWorkflow(monitorIds = listOf(createdMonitor.id), enabled = true))
 
-        assertNotNull("The monitor was not created", createdMonitor)
-        assertTrue("The monitor was not enabled", createdMonitor.enabled)
+        assertNotNull("The workflow was not created", createdWorkflow)
+        assertTrue("The workflow was not enabled", createdWorkflow.enabled)
 
-        deleteMonitor(monitor = createdMonitor)
+        deleteWorkflow(workflow = createdWorkflow, deleteDelegates = true)
 
-        val search = SearchSourceBuilder().query(QueryBuilders.termQuery("_id", createdMonitor.id)).toString()
+        val searchMonitor = SearchSourceBuilder().query(QueryBuilders.termQuery("_id", createdMonitor.id)).toString()
+        // Verify if the delegate monitors are deleted
         // search as "admin" - must get 0 docs
-        val adminSearchResponse = client().makeRequest(
+        val adminMonitorSearchResponse = client().makeRequest(
             "POST",
             "$ALERTING_BASE_URI/_search",
             emptyMap(),
-            NStringEntity(search, ContentType.APPLICATION_JSON)
+            NStringEntity(searchMonitor, ContentType.APPLICATION_JSON)
         )
-        assertEquals("Search monitor failed", RestStatus.OK, adminSearchResponse.restStatus())
+        assertEquals("Search monitor failed", RestStatus.OK, adminMonitorSearchResponse.restStatus())
 
-        val adminHits = createParser(
+        val adminMonitorHits = createParser(
             XContentType.JSON.xContent(),
-            adminSearchResponse.entity.content
+            adminMonitorSearchResponse.entity.content
         ).map()["hits"]!! as Map<String, Map<String, Any>>
-        val adminDocsFound = adminHits["total"]?.get("value")
-        assertEquals("Monitor found during search", 0, adminDocsFound)
+        val adminMonitorDocsFound = adminMonitorHits["total"]?.get("value")
+        assertEquals("Monitor found during search", 0, adminMonitorDocsFound)
+
+        // Verify workflow deletion
+        try {
+            client().makeRequest(
+                "GET",
+                "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
+                emptyMap(),
+                null
+            )
+            fail("Workflow found during search")
+        } catch (e: ResponseException) {
+            assertEquals("Get workflow failed", RestStatus.NOT_FOUND.status, e.response.statusLine.statusCode)
+        }
     }
 
-    fun `test delete monitor with enable filter by`() {
+    fun `test delete workflow with enable filter by`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
             // refer: `test create monitor with enable filter by`
             return
         }
-        val monitor = randomQueryLevelMonitor(enabled = true)
-
-        val createdMonitor = createMonitor(monitor = monitor)
+        val createdMonitor = createMonitor(monitor = randomQueryLevelMonitor())
 
         assertNotNull("The monitor was not created", createdMonitor)
-        assertTrue("The monitor was not enabled", createdMonitor.enabled)
 
-        deleteMonitor(monitor = createdMonitor)
+        val createdWorkflow = createWorkflow(workflow = randomWorkflow(monitorIds = listOf(createdMonitor.id), enabled = true))
+        assertNotNull("The workflow was not created", createdWorkflow)
+        assertTrue("The workflow was not enabled", createdWorkflow.enabled)
 
+        deleteWorkflow(workflow = createdWorkflow, true)
+
+        // Verify underlying delegates deletion
         val search = SearchSourceBuilder().query(QueryBuilders.termQuery("_id", createdMonitor.id)).toString()
         // search as "admin" - must get 0 docs
         val adminSearchResponse = client().makeRequest(
@@ -1013,6 +1030,19 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         ).map()["hits"]!! as Map<String, Map<String, Any>>
         val adminDocsFound = adminHits["total"]?.get("value")
         assertEquals("Monitor found during search", 0, adminDocsFound)
+
+        // Verify workflow deletion
+        try {
+            client().makeRequest(
+                "GET",
+                "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
+                emptyMap(),
+                null
+            )
+            fail("Workflow found during search")
+        } catch (e: ResponseException) {
+            assertEquals("Get workflow failed", RestStatus.NOT_FOUND.status, e.response.statusLine.statusCode)
+        }
     }
 
     /*

@@ -158,6 +158,18 @@ abstract class AlertingRestTestCase : ODFERestTestCase() {
         return response
     }
 
+    protected fun deleteWorkflow(workflow: Workflow, deleteDelegates: Boolean = false, refresh: Boolean = true): Response {
+        val response = client().makeRequest(
+            "DELETE",
+            "$WORKFLOW_ALERTING_BASE_URI/${workflow.id}?refresh=$refresh&deleteDelegateMonitors=$deleteDelegates",
+            emptyMap(),
+            workflow.toHttpEntity()
+        )
+        assertEquals("Unable to delete a workflow", RestStatus.OK, response.restStatus())
+
+        return response
+    }
+
     /**
      * Destinations are now deprecated in favor of the Notification plugin's configs.
      * This method should only be used for checking legacy behavior/Notification migration scenarios.
