@@ -155,8 +155,15 @@ class TransportDeleteWorkflowAction @Inject constructor(
                         if (user == null) {
                             deleteMonitors(delegateMonitorIds, RefreshPolicy.IMMEDIATE)
                         } else {
+                            // Un-stash the context
                             withClosableContext(
-                                InjectorContextElement(user.name.plus(UUID.randomUUID().toString()), settings, client.threadPool().threadContext, user.roles)
+                                InjectorContextElement(
+                                    user.name.plus(UUID.randomUUID().toString()),
+                                    settings,
+                                    client.threadPool().threadContext,
+                                    user.roles,
+                                    user
+                                )
                             ) {
                                 deleteMonitors(delegateMonitorIds, RefreshPolicy.IMMEDIATE)
                             }
