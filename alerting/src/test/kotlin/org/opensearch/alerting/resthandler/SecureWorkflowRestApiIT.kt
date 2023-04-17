@@ -18,7 +18,6 @@ import org.opensearch.alerting.ALERTING_DELETE_MONITOR_ACCESS
 import org.opensearch.alerting.ALERTING_EXECUTE_MONITOR_ACCESS
 import org.opensearch.alerting.ALERTING_FULL_ACCESS_ROLE
 import org.opensearch.alerting.ALERTING_GET_ALERTS_ACCESS
-import org.opensearch.alerting.ALERTING_GET_MONITOR_ACCESS
 import org.opensearch.alerting.ALERTING_GET_WORKFLOW_ACCESS
 import org.opensearch.alerting.ALERTING_INDEX_MONITOR_ACCESS
 import org.opensearch.alerting.ALERTING_INDEX_WORKFLOW_ACCESS
@@ -105,8 +104,7 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
     // Create Workflow related security tests
     fun `test create workflow with an user with alerting role`() {
         val clusterPermissions = listOf(
-            getClusterPermissionsFromCustomRole(ALERTING_INDEX_WORKFLOW_ACCESS),
-            getClusterPermissionsFromCustomRole(ALERTING_SEARCH_MONITOR_ONLY_ACCESS)
+            getClusterPermissionsFromCustomRole(ALERTING_INDEX_WORKFLOW_ACCESS)
         )
 
         createUserWithTestDataAndCustomRole(
@@ -182,12 +180,15 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
 
     fun `test create workflow with delegate with an user without index read role`() {
         createTestIndex(TEST_NON_HR_INDEX)
+        val clusterPermissions = listOf(
+            getClusterPermissionsFromCustomRole(ALERTING_INDEX_WORKFLOW_ACCESS)
+        )
         createUserWithTestDataAndCustomRole(
             user,
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf(TEST_HR_BACKEND_ROLE),
-            getClusterPermissionsFromCustomRole(ALERTING_INDEX_WORKFLOW_ACCESS)
+            clusterPermissions
         )
         try {
             val query = randomDocLevelQuery(tags = listOf())
@@ -407,7 +408,7 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         }
     }
 
-    fun `test create workflow test with enable filter by with a user have access and without role has no access`() {
+    fun `test create workflow with enable filter by with a user with a backend role doesn't have access to monitor`() {
         enableFilterBy()
         if (!isHttps()) {
             return
@@ -450,20 +451,21 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         } catch (e: ResponseException) {
             assertEquals("Create workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
-            deleteRoleAndRoleMapping(TEST_HR_ROLE)
             deleteUser(userWithDifferentRole)
             userWithDifferentRoleClient?.close()
         }
     }
 
-    fun `test create monitor with enable filter by with no backend roles`() {
+    fun `test create workflow with enable filter by with no backend roles`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
             // refer: `test create monitor with enable filter by`
             return
         }
-        val monitor = randomQueryLevelMonitor(enabled = true)
+        val monitor = createMonitor(randomQueryLevelMonitor(enabled = true))
+
+        val workflow = randomWorkflow(monitorIds = listOf(monitor.id))
 
         createUserWithRoles(
             user,
@@ -473,17 +475,17 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         )
 
         try {
-            createMonitorWithClient(userClient!!, monitor = monitor, listOf())
-            fail("Expected exception since a non-admin user is trying to create a monitor with no backend roles")
+            createWorkflowWithClient(userClient!!, workflow, listOf())
+            fail("Expected exception since a non-admin user is trying to create a workflow with no backend roles")
         } catch (e: ResponseException) {
-            assertEquals("Create monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Create workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             createUserRolesMapping(ALERTING_FULL_ACCESS_ROLE, arrayOf())
             createUserRolesMapping(READALL_AND_MONITOR_ROLE, arrayOf())
         }
     }
 
-    fun `test create monitor as admin with enable filter by with no backend roles`() {
+    fun `test create workflow as admin with enable filter by with no backend roles`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
@@ -499,33 +501,36 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             false
         )
 
-        val createdMonitor = createMonitorWithClient(client(), monitor = monitor, listOf())
-        assertNotNull("The monitor was not created", createdMonitor)
+        val createdMonitor = createMonitor(monitor = monitor)
+        val createdWorkflow = createWorkflow(randomWorkflow(monitorIds = listOf(createdMonitor.id)))
+        assertNotNull("The workflow was not created", createdWorkflow)
 
         try {
+
             userClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${createdMonitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
             fail("Expected Forbidden exception")
         } catch (e: ResponseException) {
-            assertEquals("Get monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Get workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             createUserRolesMapping(ALERTING_FULL_ACCESS_ROLE, arrayOf())
             createUserRolesMapping(READALL_AND_MONITOR_ROLE, arrayOf())
         }
     }
 
-    fun `test create monitor with enable filter by with roles user has no access and throw exception`() {
+    fun `test create workflow with enable filter by with roles user has no access and throw exception`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
             // refer: `test create monitor with enable filter by`
             return
         }
-        val monitor = randomQueryLevelMonitor(enabled = true)
+        val monitor = createMonitor(randomQueryLevelMonitor(enabled = true))
+        val workflow = randomWorkflow(monitorIds = listOf(monitor.id))
 
         createUserWithRoles(
             user,
@@ -535,17 +540,17 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         )
 
         try {
-            createMonitorWithClient(userClient!!, monitor = monitor, listOf(TEST_HR_BACKEND_ROLE, "role1", "role2"))
-            fail("Expected create monitor to fail as user does not have role1 backend role")
+            createWorkflowWithClient(userClient!!, workflow = workflow, listOf(TEST_HR_BACKEND_ROLE, "role1", "role2"))
+            fail("Expected create workflow to fail as user does not have role1 backend role")
         } catch (e: ResponseException) {
-            assertEquals("Create monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Create workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             createUserRolesMapping(ALERTING_FULL_ACCESS_ROLE, arrayOf())
             createUserRolesMapping(READALL_AND_MONITOR_ROLE, arrayOf())
         }
     }
 
-    fun `test create monitor as admin with enable filter by with a user have access and without role has no access`() {
+    fun `test create workflow as admin with enable filter by with a user have access and without role has no access`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
@@ -555,7 +560,8 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         val monitor = randomQueryLevelMonitor(enabled = true)
 
         val createdMonitor = createMonitorWithClient(client(), monitor = monitor, listOf(TEST_HR_BACKEND_ROLE, "role1", "role2"))
-        assertNotNull("The monitor was not created", createdMonitor)
+        val createdWorkflow = createWorkflowWithClient(client(), randomWorkflow(monitorIds = listOf(createdMonitor.id)), listOf(TEST_HR_BACKEND_ROLE, "role1", "role2"))
+        assertNotNull("The workflow was not created", createdWorkflow)
 
         // user should have access to the admin monitor
         createUserWithTestDataAndCustomRole(
@@ -563,42 +569,41 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf(TEST_HR_BACKEND_ROLE),
-            getClusterPermissionsFromCustomRole(ALERTING_GET_MONITOR_ACCESS)
+            getClusterPermissionsFromCustomRole(ALERTING_GET_WORKFLOW_ACCESS)
         )
 
-        val getMonitorResponse = userClient?.makeRequest(
+        val getWorkflowResponse = userClient?.makeRequest(
             "GET",
-            "$ALERTING_BASE_URI/${createdMonitor.id}",
+            "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
             null,
             BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
         )
-        assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
+        assertEquals("Get workflow failed", RestStatus.OK, getWorkflowResponse?.restStatus())
 
         // Remove good backend role and ensure no access is granted after
         patchUserBackendRoles(user, arrayOf("role5"))
         try {
             userClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${createdMonitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
             fail("Expected Forbidden exception")
         } catch (e: ResponseException) {
-            assertEquals("Get monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Get workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             deleteRoleAndRoleMapping(TEST_HR_ROLE)
         }
     }
 
-    fun `test update monitor with enable filter by with removing a permission`() {
+    fun `test update workflow with enable filter by with removing a permission`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
             // refer: `test create monitor with enable filter by`
             return
         }
-        val monitor = randomQueryLevelMonitor(enabled = true)
 
         createUserWithRoles(
             user,
@@ -607,8 +612,9 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             false
         )
 
-        val createdMonitor = createMonitorWithClient(userClient!!, monitor = monitor, listOf(TEST_HR_BACKEND_ROLE, "role2"))
-        assertNotNull("The monitor was not created", createdMonitor)
+        val createdMonitor = createMonitorWithClient(userClient!!, randomQueryLevelMonitor(), listOf(TEST_HR_BACKEND_ROLE, "role2"))
+        val createdWorkflow = createWorkflowWithClient(userClient!!, workflow = randomWorkflow(enabled = true, monitorIds = listOf(createdMonitor.id)), listOf(TEST_HR_BACKEND_ROLE, "role2"))
+        assertNotNull("The workflow was not created", createdWorkflow)
 
         // getUser should have access to the monitor
         val getUser = "getUser"
@@ -617,27 +623,27 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf("role2"),
-            getClusterPermissionsFromCustomRole(ALERTING_GET_MONITOR_ACCESS)
+            getClusterPermissionsFromCustomRole(ALERTING_GET_WORKFLOW_ACCESS)
         )
         val getUserClient = SecureRestClientBuilder(clusterHosts.toTypedArray(), isHttps(), getUser, getUser)
             .setSocketTimeout(60000).build()
 
-        val getMonitorResponse = getUserClient?.makeRequest(
+        val getWorkflowResponse = getUserClient?.makeRequest(
             "GET",
-            "$ALERTING_BASE_URI/${createdMonitor.id}",
+            "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
             null,
             BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
         )
-        assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
+        assertEquals("Get workflow failed", RestStatus.OK, getWorkflowResponse?.restStatus())
 
         // Remove backend role from monitor
-        val updatedMonitor = updateMonitorWithClient(userClient!!, createdMonitor, listOf(TEST_HR_BACKEND_ROLE))
+        val updatedWorkflow = updateWorkflowWithClient(userClient!!, createdWorkflow, listOf(TEST_HR_BACKEND_ROLE))
 
         // getUser should no longer have access
         try {
             getUserClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${updatedMonitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${updatedWorkflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
@@ -653,7 +659,7 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         }
     }
 
-    fun `test update monitor with enable filter by with no backend roles`() {
+    fun `test update workflow with enable filter by with no backend roles`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
@@ -672,8 +678,16 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         val createdMonitor = createMonitorWithClient(userClient!!, monitor = monitor, listOf("role2"))
         assertNotNull("The monitor was not created", createdMonitor)
 
+        val createdWorkflow = createWorkflowWithClient(
+            userClient!!,
+            randomWorkflow(monitorIds = listOf(createdMonitor.id)),
+            listOf("role2")
+        )
+
+        assertNotNull("The workflow was not created", createdWorkflow)
+
         try {
-            updateMonitorWithClient(userClient!!, createdMonitor, listOf())
+            updateWorkflowWithClient(userClient!!, createdMonitor, listOf())
         } catch (e: ResponseException) {
             assertEquals("Update monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
@@ -682,7 +696,7 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         }
     }
 
-    fun `test update monitor as admin with enable filter by with no backend roles`() {
+    fun `test update workflow as admin with enable filter by with no backend roles`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
@@ -690,6 +704,8 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             return
         }
         val monitor = randomQueryLevelMonitor(enabled = true)
+        val createdMonitorResponse = createMonitor(monitor, true)
+        assertNotNull("The monitor was not created", createdMonitorResponse)
 
         createUserWithRoles(
             user,
@@ -697,37 +713,45 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             listOf(TEST_HR_BACKEND_ROLE, "role2"),
             false
         )
+        val workflow = randomWorkflow(
+            monitorIds = listOf(createdMonitorResponse.id)
+        )
 
-        val createdMonitor = createMonitorWithClient(client(), monitor = monitor, listOf(TEST_HR_BACKEND_ROLE))
-        assertNotNull("The monitor was not created", createdMonitor)
+        val createdWorkflow = createWorkflowWithClient(
+            client(),
+            workflow = workflow,
+            rbacRoles = listOf(TEST_HR_BACKEND_ROLE)
+        )
 
-        val getMonitorResponse = userClient?.makeRequest(
+        assertNotNull("The workflow was not created", createdWorkflow)
+
+        val getWorkflowResponse = userClient?.makeRequest(
             "GET",
-            "$ALERTING_BASE_URI/${createdMonitor.id}",
+            "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
             null,
             BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
         )
-        assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
+        assertEquals("Get workflow failed", RestStatus.OK, getWorkflowResponse?.restStatus())
 
-        val updatedMonitor = updateMonitorWithClient(client(), createdMonitor, listOf())
+        val updatedWorkflow = updateWorkflowWithClient(client(), createdWorkflow, listOf())
 
         try {
             userClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${updatedMonitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${updatedWorkflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
             fail("Expected Forbidden exception")
         } catch (e: ResponseException) {
-            assertEquals("Get monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Get workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             createUserRolesMapping(ALERTING_FULL_ACCESS_ROLE, arrayOf())
             createUserRolesMapping(READALL_AND_MONITOR_ROLE, arrayOf())
         }
     }
 
-    fun `test update monitor with enable filter by with updating with a permission user has no access to and throw exception`() {
+    fun `test update workflow with enable filter by with updating with a permission user has no access to and throw exception`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
@@ -746,6 +770,13 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         val createdMonitor = createMonitorWithClient(userClient!!, monitor = monitor, listOf(TEST_HR_BACKEND_ROLE, "role2"))
         assertNotNull("The monitor was not created", createdMonitor)
 
+        val createdWorkflow = createWorkflowWithClient(
+            userClient!!,
+            workflow = randomWorkflow(monitorIds = listOf(createdMonitor.id)), listOf(TEST_HR_BACKEND_ROLE, "role2")
+        )
+
+        assertNotNull("The workflow was not created", createdWorkflow)
+
         // getUser should have access to the monitor
         val getUser = "getUser"
         createUserWithTestDataAndCustomRole(
@@ -753,24 +784,24 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf("role2"),
-            getClusterPermissionsFromCustomRole(ALERTING_GET_MONITOR_ACCESS)
+            getClusterPermissionsFromCustomRole(ALERTING_GET_WORKFLOW_ACCESS)
         )
         val getUserClient = SecureRestClientBuilder(clusterHosts.toTypedArray(), isHttps(), getUser, getUser)
             .setSocketTimeout(60000).build()
 
-        val getMonitorResponse = getUserClient?.makeRequest(
+        val getWorkflowResponse = getUserClient?.makeRequest(
             "GET",
-            "$ALERTING_BASE_URI/${createdMonitor.id}",
+            "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
             null,
             BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
         )
-        assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
+        assertEquals("Get workflow failed", RestStatus.OK, getWorkflowResponse?.restStatus())
 
         try {
-            updateMonitorWithClient(userClient!!, createdMonitor, listOf(TEST_HR_BACKEND_ROLE, "role1"))
-            fail("Expected update monitor to fail as user doesn't have access to role1")
+            updateWorkflowWithClient(userClient!!, createdWorkflow, listOf(TEST_HR_BACKEND_ROLE, "role1"))
+            fail("Expected update workflow to fail as user doesn't have access to role1")
         } catch (e: ResponseException) {
-            assertEquals("Update monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Update workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             deleteRoleAndRoleMapping(TEST_HR_ROLE)
             deleteUser(getUser)
@@ -780,7 +811,7 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         }
     }
 
-    fun `test update monitor as another user with enable filter by with removing a permission and adding permission`() {
+    fun `test update workflow as another user with enable filter by with removing a permission and adding permission`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
@@ -799,7 +830,14 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         val createdMonitor = createMonitorWithClient(userClient!!, monitor = monitor, listOf(TEST_HR_BACKEND_ROLE))
         assertNotNull("The monitor was not created", createdMonitor)
 
-        // Remove backend role from monitor with new user and add role5
+        val createdWorkflow = createWorkflowWithClient(
+            userClient!!,
+            workflow = randomWorkflow(monitorIds = listOf(createdMonitor.id), enabled = true)
+        )
+
+        assertNotNull("The workflow was not created", createdWorkflow)
+
+        // Remove backend role from workflow with new user and add role5
         val updateUser = "updateUser"
         createUserWithRoles(
             updateUser,
@@ -810,19 +848,19 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
 
         val updateUserClient = SecureRestClientBuilder(clusterHosts.toTypedArray(), isHttps(), updateUser, updateUser)
             .setSocketTimeout(60000).build()
-        val updatedMonitor = updateMonitorWithClient(updateUserClient, createdMonitor, listOf("role5"))
+        val updatedWorkflow = updateWorkflowWithClient(updateUserClient, createdMonitor, listOf("role5"))
 
         // old user should no longer have access
         try {
             userClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${updatedMonitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${updatedWorkflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
             fail("Expected Forbidden exception")
         } catch (e: ResponseException) {
-            assertEquals("Get monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Get workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             deleteUser(updateUser)
             updateUserClient?.close()
@@ -831,7 +869,7 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         }
     }
 
-    fun `test update monitor as admin with enable filter by with removing a permission`() {
+    fun `test update workflow as admin with enable filter by with removing a permission`() {
         enableFilterBy()
         if (!isHttps()) {
             // if security is disabled and filter by is enabled, we can't create monitor
@@ -850,6 +888,13 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         val createdMonitor = createMonitorWithClient(userClient!!, monitor = monitor, listOf(TEST_HR_BACKEND_ROLE, "role2"))
         assertNotNull("The monitor was not created", createdMonitor)
 
+        val createdWorkflow = createWorkflowWithClient(
+            userClient!!,
+            workflow = randomWorkflow(monitorIds = listOf(createdMonitor.id)),
+            listOf(TEST_HR_BACKEND_ROLE, "role2")
+        )
+        assertNotNull("The workflow was not created", createdWorkflow)
+
         // getUser should have access to the monitor
         val getUser = "getUser"
         createUserWithTestDataAndCustomRole(
@@ -857,33 +902,33 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
             TEST_HR_INDEX,
             TEST_HR_ROLE,
             listOf("role1", "role2"),
-            getClusterPermissionsFromCustomRole(ALERTING_GET_MONITOR_ACCESS)
+            getClusterPermissionsFromCustomRole(ALERTING_GET_WORKFLOW_ACCESS)
         )
         val getUserClient = SecureRestClientBuilder(clusterHosts.toTypedArray(), isHttps(), getUser, getUser)
             .setSocketTimeout(60000).build()
 
-        val getMonitorResponse = getUserClient?.makeRequest(
+        val getWorkflowResponse = getUserClient?.makeRequest(
             "GET",
-            "$ALERTING_BASE_URI/${createdMonitor.id}",
+            "$WORKFLOW_ALERTING_BASE_URI/${createdWorkflow.id}",
             null,
             BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
         )
-        assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
+        assertEquals("Get workflow failed", RestStatus.OK, getWorkflowResponse?.restStatus())
 
         // Remove backend role from monitor
-        val updatedMonitor = updateMonitorWithClient(client(), createdMonitor, listOf("role4"))
+        val updatedWorkflow = updateWorkflowWithClient(client(), createdWorkflow, listOf("role4"))
 
         // original user should no longer have access
         try {
             userClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${updatedMonitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${updatedWorkflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
             fail("Expected Forbidden exception")
         } catch (e: ResponseException) {
-            assertEquals("Get monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Get workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             createUserRolesMapping(ALERTING_FULL_ACCESS_ROLE, arrayOf())
             createUserRolesMapping(READALL_AND_MONITOR_ROLE, arrayOf())
@@ -893,13 +938,13 @@ class SecureWorkflowRestApiIT : AlertingRestTestCase() {
         try {
             getUserClient?.makeRequest(
                 "GET",
-                "$ALERTING_BASE_URI/${updatedMonitor.id}",
+                "$WORKFLOW_ALERTING_BASE_URI/${updatedWorkflow.id}",
                 null,
                 BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")
             )
             fail("Expected Forbidden exception")
         } catch (e: ResponseException) {
-            assertEquals("Get monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
+            assertEquals("Get workflow failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
             deleteRoleAndRoleMapping(TEST_HR_ROLE)
             deleteUser(getUser)

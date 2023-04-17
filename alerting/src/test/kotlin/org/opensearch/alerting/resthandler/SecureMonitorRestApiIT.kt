@@ -597,7 +597,7 @@ class SecureMonitorRestApiIT : AlertingRestTestCase() {
         assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
 
         // Remove backend role from monitor
-        val updatedMonitor = updateMonitorWithClient(userClient!!, createdMonitor, listOf(TEST_HR_BACKEND_ROLE))
+        val updatedMonitor = updateWorkflowWithClient(userClient!!, createdMonitor, listOf(TEST_HR_BACKEND_ROLE))
 
         // getUser should no longer have access
         try {
@@ -639,7 +639,7 @@ class SecureMonitorRestApiIT : AlertingRestTestCase() {
         assertNotNull("The monitor was not created", createdMonitor)
 
         try {
-            updateMonitorWithClient(userClient!!, createdMonitor, listOf())
+            updateWorkflowWithClient(userClient!!, createdMonitor, listOf())
         } catch (e: ResponseException) {
             assertEquals("Update monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
         } finally {
@@ -675,7 +675,7 @@ class SecureMonitorRestApiIT : AlertingRestTestCase() {
         )
         assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
 
-        val updatedMonitor = updateMonitorWithClient(client(), createdMonitor, listOf())
+        val updatedMonitor = updateWorkflowWithClient(client(), createdMonitor, listOf())
 
         try {
             userClient?.makeRequest(
@@ -733,7 +733,7 @@ class SecureMonitorRestApiIT : AlertingRestTestCase() {
         assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
 
         try {
-            updateMonitorWithClient(userClient!!, createdMonitor, listOf(TEST_HR_BACKEND_ROLE, "role1"))
+            updateWorkflowWithClient(userClient!!, createdMonitor, listOf(TEST_HR_BACKEND_ROLE, "role1"))
             fail("Expected update monitor to fail as user doesn't have access to role1")
         } catch (e: ResponseException) {
             assertEquals("Update monitor failed", RestStatus.FORBIDDEN.status, e.response.statusLine.statusCode)
@@ -776,7 +776,7 @@ class SecureMonitorRestApiIT : AlertingRestTestCase() {
 
         val updateUserClient = SecureRestClientBuilder(clusterHosts.toTypedArray(), isHttps(), updateUser, updateUser)
             .setSocketTimeout(60000).build()
-        val updatedMonitor = updateMonitorWithClient(updateUserClient, createdMonitor, listOf("role5"))
+        val updatedMonitor = updateWorkflowWithClient(updateUserClient, createdMonitor, listOf("role5"))
 
         // old user should no longer have access
         try {
@@ -837,7 +837,7 @@ class SecureMonitorRestApiIT : AlertingRestTestCase() {
         assertEquals("Get monitor failed", RestStatus.OK, getMonitorResponse?.restStatus())
 
         // Remove backend role from monitor
-        val updatedMonitor = updateMonitorWithClient(client(), createdMonitor, listOf("role4"))
+        val updatedMonitor = updateWorkflowWithClient(client(), createdMonitor, listOf("role4"))
 
         // original user should no longer have access
         try {

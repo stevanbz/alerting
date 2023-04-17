@@ -151,14 +151,17 @@ class TransportDeleteMonitorAction @Inject constructor(
                 val searchRequest = SearchRequest()
                     .indices(ScheduledJob.SCHEDULED_JOBS_INDEX)
                     .source(SearchSourceBuilder().query(queryBuilder))
-                val searchResponse: SearchResponse = client.suspendUntil { search(searchRequest, it) }
-                if (searchResponse.hits.totalHits?.value == 0L) {
-                    return false
-                }
 
-                val workflowIds = searchResponse.hits.hits.joinToString { it.id }
-                log.info("Monitor $monitorId can't be deleted since it belongs to $workflowIds")
-                return true
+                client.threadPool().threadContext.stashContext().use {
+                    val searchResponse: SearchResponse = client.suspendUntil { search(searchRequest, it) }
+                    if (searchResponse.hits.totalHits?.value == 0L) {
+                        return false
+                    }
+
+                    val workflowIds = searchResponse.hits.hits.map { it.id }.joinToString()
+                    log.info("Monitor $monitorId can't be deleted since it belongs to $workflowIds")
+                    return true
+                }
             } catch (ex: Exception) {
                 log.error("Error getting the monitor workflows", ex)
                 throw AlertingException.wrap(ex)

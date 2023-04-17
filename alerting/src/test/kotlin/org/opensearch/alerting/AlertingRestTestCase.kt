@@ -544,7 +544,7 @@ abstract class AlertingRestTestCase : ODFERestTestCase() {
         return getWorkflow(workflowId = workflow.id)
     }
 
-    protected fun updateMonitorWithClient(
+    protected fun updateWorkflowWithClient(
         client: RestClient,
         monitor: Monitor,
         rbacRoles: List<String> = emptyList(),
@@ -559,6 +559,23 @@ abstract class AlertingRestTestCase : ODFERestTestCase() {
         assertEquals("Unable to update a monitor", RestStatus.OK, response.restStatus())
         assertUserNull(response.asMap()["monitor"] as Map<String, Any>)
         return getMonitor(monitorId = monitor.id)
+    }
+
+    protected fun updateWorkflowWithClient(
+        client: RestClient,
+        workflow: Workflow,
+        rbacRoles: List<String> = emptyList(),
+        refresh: Boolean = true
+    ): Workflow {
+        val response = client.makeRequest(
+            "PUT",
+            "${workflow.relativeUrl()}?refresh=$refresh",
+            emptyMap(),
+            createWorkflowEntityWithBackendRoles(workflow, rbacRoles)
+        )
+        assertEquals("Unable to update a workflow", RestStatus.OK, response.restStatus())
+        assertUserNull(response.asMap()["workflow"] as Map<String, Any>)
+        return getWorkflow(workflowId = workflow.id)
     }
 
     protected fun getMonitor(monitorId: String, header: BasicHeader = BasicHeader(HttpHeaders.CONTENT_TYPE, "application/json")): Monitor {
