@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.apache.logging.log4j.LogManager
 import org.apache.lucene.search.join.ScoreMode
+import org.opensearch.OpenSearchException
 import org.opensearch.OpenSearchStatusException
 import org.opensearch.action.ActionListener
 import org.opensearch.action.ActionRequest
@@ -22,10 +23,10 @@ import org.opensearch.action.search.SearchResponse
 import org.opensearch.action.support.ActionFilters
 import org.opensearch.action.support.HandledTransportAction
 import org.opensearch.action.support.WriteRequest.RefreshPolicy
-import org.opensearch.alerting.opensearchapi.InjectorContextElement
+import org.opensearch.alerting.model.MonitorMetadata
+import org.opensearch.alerting.model.WorkflowMetadata
 import org.opensearch.alerting.opensearchapi.addFilter
 import org.opensearch.alerting.opensearchapi.suspendUntil
-import org.opensearch.alerting.opensearchapi.withClosableContext
 import org.opensearch.alerting.settings.AlertingSettings
 import org.opensearch.alerting.util.AlertingException
 import org.opensearch.client.Client
@@ -43,6 +44,7 @@ import org.opensearch.commons.alerting.action.DeleteMonitorResponse
 import org.opensearch.commons.alerting.action.DeleteWorkflowRequest
 import org.opensearch.commons.alerting.action.DeleteWorkflowResponse
 import org.opensearch.commons.alerting.model.CompositeInput
+import org.opensearch.commons.alerting.model.Monitor
 import org.opensearch.commons.alerting.model.ScheduledJob
 import org.opensearch.commons.alerting.model.Workflow
 import org.opensearch.commons.authuser.User
@@ -51,11 +53,13 @@ import org.opensearch.core.xcontent.NamedXContentRegistry
 import org.opensearch.core.xcontent.XContentParser
 import org.opensearch.index.IndexNotFoundException
 import org.opensearch.index.query.QueryBuilders
+import org.opensearch.index.reindex.BulkByScrollResponse
+import org.opensearch.index.reindex.DeleteByQueryAction
+import org.opensearch.index.reindex.DeleteByQueryRequestBuilder
 import org.opensearch.rest.RestStatus
 import org.opensearch.search.builder.SearchSourceBuilder
 import org.opensearch.tasks.Task
 import org.opensearch.transport.TransportService
-import java.util.UUID
 
 private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 /**
@@ -68,7 +72,7 @@ class TransportDeleteWorkflowAction @Inject constructor(
     actionFilters: ActionFilters,
     val clusterService: ClusterService,
     val settings: Settings,
-    val xContentRegistry: NamedXContentRegistry
+    val xContentRegistry: NamedXContentRegistry,
 ) : HandledTransportAction<ActionRequest, DeleteWorkflowResponse>(
     AlertingActions.DELETE_WORKFLOW_ACTION_NAME, transportService, actionFilters, ::DeleteWorkflowRequest
 ),
@@ -112,7 +116,7 @@ class TransportDeleteWorkflowAction @Inject constructor(
         private val deleteRequest: DeleteRequest,
         private val deleteDelegateMonitors: Boolean?,
         private val user: User?,
-        private val workflowId: String
+        private val workflowId: String,
     ) {
         suspend fun resolveUserAndStart() {
             try {
@@ -130,13 +134,13 @@ class TransportDeleteWorkflowAction @Inject constructor(
 
                 if (canDelete) {
                     val delegateMonitorIds = (workflow.inputs[0] as CompositeInput).getMonitorIds()
-
+                    var deletableMonitors = listOf<Monitor>()
                     // User can only delete the delegate monitors only in the case if all monitors can be deleted
                     // Partial monitor deletion is not available
                     if (deleteDelegateMonitors == true) {
-                        val monitorIdsToBeDeleted = getDeletableDelegates(workflowId, delegateMonitorIds, user)
+                        deletableMonitors = getDeletableDelegates(workflowId, delegateMonitorIds, user)
                         val monitorsDiff = delegateMonitorIds.toMutableList()
-                        monitorsDiff.removeAll(monitorIdsToBeDeleted)
+                        monitorsDiff.removeAll(deletableMonitors.map { it.id })
 
                         if (monitorsDiff.isNotEmpty()) {
                             actionListener.onFailure(
@@ -150,26 +154,38 @@ class TransportDeleteWorkflowAction @Inject constructor(
                         }
                     }
 
-                    val deleteResponse = deleteWorkflow(workflow)
+                    val deleteResponse = deleteWorkflow(deleteRequest)
+                    var deleteWorkflowResponse = DeleteWorkflowResponse(deleteResponse.id, deleteResponse.version)
+
+                    val workflowMetadataId = WorkflowMetadata.getId(workflow.id)
+
+                    val metadataIdsToDelete = mutableListOf(workflowMetadataId)
+
                     if (deleteDelegateMonitors == true) {
-                        if (user != null && filterByEnabled) {
-                            // Un-stash the context
-                            withClosableContext(
-                                InjectorContextElement(
-                                    user.name.plus(UUID.randomUUID().toString()),
-                                    settings,
-                                    client.threadPool().threadContext,
-                                    user.roles,
-                                    user
-                                )
-                            ) {
-                                deleteMonitors(delegateMonitorIds, RefreshPolicy.IMMEDIATE)
-                            }
-                        } else {
-                            deleteMonitors(delegateMonitorIds, RefreshPolicy.IMMEDIATE)
-                        }
+                        val failedMonitorIds = tryDeletingMonitors(delegateMonitorIds, RefreshPolicy.IMMEDIATE)
+                        // Update delete workflow response
+                        deleteWorkflowResponse.nonDeletedMonitors = failedMonitorIds
+                        // Delete monitors workflow metadata
+                        // Monitor metadata will be in monitorId-workflowId-metadata format
+                        metadataIdsToDelete.addAll(deletableMonitors.map { MonitorMetadata.getId(it, workflowMetadataId) })
                     }
-                    actionListener.onResponse(DeleteWorkflowResponse(deleteResponse.id, deleteResponse.version))
+                    // Delete the monitors and it's metadata
+                    val deleteMonitorWorkflowMetadataResponse: BulkByScrollResponse = client.suspendUntil {
+                        DeleteByQueryRequestBuilder(client, DeleteByQueryAction.INSTANCE)
+                            .source(ScheduledJob.SCHEDULED_JOBS_INDEX)
+                            .filter(QueryBuilders.idsQuery().addIds(*metadataIdsToDelete.toTypedArray()))
+                            .execute(it)
+                    }
+
+                    if (deleteMonitorWorkflowMetadataResponse.isTimedOut) {
+                        actionListener.onFailure(
+                            AlertingException.wrap(
+                                OpenSearchException("Cannot determine that the ${ScheduledJob.SCHEDULED_JOBS_INDEX} index is healthy")
+                            )
+                        )
+                        return
+                    }
+                    actionListener.onResponse(deleteWorkflowResponse)
                 } else {
                     actionListener.onFailure(
                         AlertingException(
@@ -193,16 +209,26 @@ class TransportDeleteWorkflowAction @Inject constructor(
             }
         }
 
-        private suspend fun deleteMonitors(monitorIds: List<String>, refreshPolicy: RefreshPolicy) {
-            if (monitorIds.isEmpty())
-                return
+        /**
+         * Tries to delete the given list of the monitors. Return value contains all the monitorIds which deletion failed
+         * @param monitorIds list of monitor ids to be deleted
+         * @param refreshPolicy
+         * @return list of the monitors that were not deleted
+         */
+        private suspend fun tryDeletingMonitors(monitorIds: List<String>, refreshPolicy: RefreshPolicy): List<String> {
+            val nonDeletedMonitorIds = mutableListOf<String>()
 
             for (monitorId in monitorIds) {
                 val deleteRequest = DeleteMonitorRequest(monitorId, refreshPolicy)
-                val searchResponse: DeleteMonitorResponse = client.suspendUntil {
-                    AlertingPluginInterface.deleteMonitor(this as NodeClient, deleteRequest, it)
+                try {
+                    val deleteMonitors: DeleteMonitorResponse = client.suspendUntil {
+                        AlertingPluginInterface.deleteMonitor(this as NodeClient, deleteRequest, it)
+                    }
+                } catch (ex: Exception) {
+                    nonDeletedMonitorIds.add(monitorId)
                 }
             }
+            return nonDeletedMonitorIds
         }
 
         /**
@@ -210,7 +236,7 @@ class TransportDeleteWorkflowAction @Inject constructor(
          * @param workflowIdToBeDeleted Id of the workflow that should be deleted
          * @param monitorIds List of delegate monitor ids (underlying monitor ids)
          */
-        private suspend fun getDeletableDelegates(workflowIdToBeDeleted: String, monitorIds: List<String>, user: User?): List<String> {
+        private suspend fun getDeletableDelegates(workflowIdToBeDeleted: String, monitorIds: List<String>, user: User?): List<Monitor> {
             // Retrieve monitors belonging to another workflows
             val queryBuilder = QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery("_id", workflowIdToBeDeleted)).filter(
                 QueryBuilders.nestedQuery(
@@ -228,11 +254,6 @@ class TransportDeleteWorkflowAction @Inject constructor(
             val searchRequest = SearchRequest()
                 .indices(ScheduledJob.SCHEDULED_JOBS_INDEX)
                 .source(SearchSourceBuilder().query(queryBuilder))
-
-            // Check if user can access the monitors(since the monitors could get modified later and the user might not have the backend roles to access the monitors)
-            if (user != null && filterByEnabled) {
-                addFilter(user, searchRequest.source(), "monitor.user.backend_roles.keyword")
-            }
 
             val searchResponse: SearchResponse = client.suspendUntil { search(searchRequest, it) }
 
@@ -252,7 +273,32 @@ class TransportDeleteWorkflowAction @Inject constructor(
             }
             val workflowMonitors = workflows.filter { it.id != workflowIdToBeDeleted }.flatMap { (it.inputs[0] as CompositeInput).getMonitorIds() }.distinct()
             // Monitors that can be deleted -> all workflow delegates - monitors belonging to different workflows
-            return monitorIds.minus(workflowMonitors.toSet())
+            val deletableMonitorIds = monitorIds.minus(workflowMonitors.toSet())
+
+            val query = QueryBuilders.boolQuery().filter(QueryBuilders.termsQuery("_id", deletableMonitorIds))
+            val searchSource = SearchSourceBuilder().query(query)
+            val monitorSearchRequest = SearchRequest(ScheduledJob.SCHEDULED_JOBS_INDEX).source(searchSource)
+
+            if (user != null && filterByEnabled) {
+                addFilter(user, monitorSearchRequest.source(), "monitor.user.backend_roles.keyword")
+            }
+
+            val searchMonitorResponse: SearchResponse = client.suspendUntil { search(monitorSearchRequest, it) }
+            if (searchMonitorResponse.isTimedOut) {
+                throw OpenSearchException("Cannot determine that the ${ScheduledJob.SCHEDULED_JOBS_INDEX} index is healthy")
+            }
+            val deletableMonitors = mutableListOf<Monitor>()
+            for (hit in searchMonitorResponse.hits) {
+                XContentType.JSON.xContent().createParser(
+                    xContentRegistry,
+                    LoggingDeprecationHandler.INSTANCE, hit.sourceAsString
+                ).use { hitsParser ->
+                    val monitor = ScheduledJob.parse(hitsParser, hit.id, hit.version) as Monitor
+                    deletableMonitors.add(monitor)
+                }
+            }
+
+            return deletableMonitors
         }
 
         private suspend fun getWorkflow(): Workflow {
@@ -273,13 +319,13 @@ class TransportDeleteWorkflowAction @Inject constructor(
             return ScheduledJob.parse(xcp, getResponse.id, getResponse.version) as Workflow
         }
 
-        private suspend fun deleteWorkflow(workflow: Workflow): DeleteResponse {
+        private suspend fun deleteWorkflow(deleteRequest: DeleteRequest): DeleteResponse {
             log.debug("Deleting the workflow with id ${deleteRequest.id()}")
             return client.suspendUntil { delete(deleteRequest, it) }
         }
-        // TODO - use once the workflow metadata concept is introduced
-        private suspend fun deleteMetadata(workflow: Workflow) {
-            val deleteRequest = DeleteRequest(ScheduledJob.SCHEDULED_JOBS_INDEX, "${workflow.id}-metadata")
+
+        private suspend fun deleteWorkflowMetadata(workflow: Workflow) {
+            val deleteRequest = DeleteRequest(ScheduledJob.SCHEDULED_JOBS_INDEX, WorkflowMetadata.getId(workflow.id))
             val deleteResponse: DeleteResponse = client.suspendUntil { delete(deleteRequest, it) }
         }
     }
