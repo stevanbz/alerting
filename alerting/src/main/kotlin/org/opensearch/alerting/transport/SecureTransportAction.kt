@@ -76,10 +76,6 @@ interface SecureTransportAction {
     }
 
     fun <T : Any> validateUserBackendRoles(user: User?, actionListener: ActionListener<T>): Boolean {
-        if (!filterByEnabled || user == null) {
-            return true
-        }
-
         if (filterByEnabled) {
             if (user == null) {
                 actionListener.onFailure(

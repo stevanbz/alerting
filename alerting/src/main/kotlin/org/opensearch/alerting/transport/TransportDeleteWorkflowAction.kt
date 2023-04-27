@@ -23,6 +23,7 @@ import org.opensearch.action.search.SearchResponse
 import org.opensearch.action.support.ActionFilters
 import org.opensearch.action.support.HandledTransportAction
 import org.opensearch.action.support.WriteRequest.RefreshPolicy
+import org.opensearch.alerting.DeleteMonitorService
 import org.opensearch.alerting.model.MonitorMetadata
 import org.opensearch.alerting.model.WorkflowMetadata
 import org.opensearch.alerting.opensearchapi.addFilter
