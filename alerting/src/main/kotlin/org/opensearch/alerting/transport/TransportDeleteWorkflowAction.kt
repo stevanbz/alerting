@@ -231,7 +231,7 @@ class TransportDeleteWorkflowAction @Inject constructor(
         }
 
         /**
-         * Returns lit of monitor ids belonging only to a given workflow
+         * Returns list of monitor ids belonging only to a given workflow
          * @param workflowIdToBeDeleted Id of the workflow that should be deleted
          * @param monitorIds List of delegate monitor ids (underlying monitor ids)
          */
